@@ -1,6 +1,5 @@
 # Note: nested templates like this one are packaged to S3 by
 # .github/workflows/package-templates.yml whenever this file changes.
-# (trivial change to retrigger OIDC packaging workflow: 2026-09-02, take 2)
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
   Multi-AZ VPC for the Photo Uploader lab. 2 public subnets (ALB, NAT
