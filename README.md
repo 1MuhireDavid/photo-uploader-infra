@@ -168,9 +168,12 @@ app or infra change.
    `AppOwnerName` to your full name. `GitHubOrg`/`AppRepoName` are already
    filled in. Commit the change.
 5. **Push this repo to GitHub on `main`.** `.github/workflows/
-   package-templates.yml` runs automatically, uploads the nested templates
-   to S3, and commits the first `TemplatesVersion` back to the repo — no
-   action needed from you here.
+   package-templates.yml` runs automatically and uploads the nested
+   templates to S3. It does **not** touch the repo itself — open the run's
+   job summary (or its "Print next manual step" log line) for the short
+   SHA it uploaded under, then paste that into `cfn/deployment-file.yaml`'s
+   `TemplatesVersion` parameter yourself and commit. That commit is what
+   Git sync (once turned on, step 6) picks up to deploy.
 6. **Turn on Git sync**, entirely in the CloudFormation console:
    - **CloudFormation → Stacks → Create stack → With Git sync**.
    - Connect to `1MuhireDavid/photo-uploader-infra`, branch `main`.

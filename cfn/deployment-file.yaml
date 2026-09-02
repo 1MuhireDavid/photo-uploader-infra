@@ -31,9 +31,10 @@ parameters:
   # bootstrap stack is created.
   TemplatesBucketName: photo-uploader-cfn-templates-047719661196-us-east-1
 
-  # Overwritten automatically by .github/workflows/package-templates.yml
-  # every time cfn/modules/** changes -- see that workflow for the
-  # commit-back step. Leave the placeholder below for the very first push.
+  # Set this MANUALLY after each run of .github/workflows/package-templates.yml
+  # -- copy the short SHA it prints (job summary + logs) in here and commit,
+  # which is the change Git sync picks up to redeploy against the templates
+  # that run just uploaded to S3.
   TemplatesVersion: c1664046e170
 
   VpcCIDR: 10.30.0.0/16
