@@ -28,7 +28,7 @@ photo-uploader-infra/
 │       ├── 05-database.yaml            # RDS PostgreSQL (photo metadata)
 │       ├── 06-alb-ecs.yaml              # ALB, ECS cluster/service, autoscaling
 │       └── 07-cicd-pipeline.yaml         # CodePipeline, CodeDeploy, EventBridge
-├── diagram/architecture.py    # diagram-as-code
+├── diagram/architecture.drawio    # architecture diagram (draw.io / diagrams.net)
 └── .github/workflows/package-templates.yml
 ```
 
@@ -203,7 +203,7 @@ app or infra change.
 | Infra CloudFormation | this repo |
 | App code + Dockerfile + build/deploy files | [`photo-uploader-app`](https://github.com/1MuhireDavid/photo-uploader-app) |
 | ALB endpoint | CloudFormation output `AlbEndpoint` on the root stack, after step 8 |
-| Architecture diagram (diagram-as-code) | `diagram/architecture.py` → `diagram/architecture.png` |
+| Architecture diagram (draw.io) | `diagram/architecture.drawio` |
 
 ## Rubric → implementation map
 
@@ -255,9 +255,11 @@ app or infra change.
 - Every resource is tagged `Project`/`ManagedBy`/`Environment` (propagated
   from `deployment-file.yaml`'s `tags:` block through the nested stacks).
 
-## Regenerating the diagram
+## Viewing / editing the diagram
 
-```bash
-pip install diagrams --break-system-packages   # also requires the `graphviz` system package
-cd diagram && python3 architecture.py
-```
+`diagram/architecture.drawio` opens directly in
+[diagrams.net](https://app.diagrams.net) (File → Open From → Device), the
+[draw.io desktop app](https://github.com/jgraph/drawio-desktop), or the
+[Draw.io Integration VS Code extension](https://marketplace.visualstudio.com/items?itemName=hediet.vscode-drawio).
+To export a PNG/SVG for a slide or doc, open it in any of those and use
+**File → Export as**.
