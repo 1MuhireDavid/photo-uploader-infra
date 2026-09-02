@@ -29,7 +29,7 @@ parameters:
   # Filled in from the bootstrap stack's outputs (bootstrap/00-bootstrap.yaml)
   # -- copy the TemplatesBucketName output value here once, after the
   # bootstrap stack is created.
-  TemplatesBucketName: photo-uploader-cfn-templates-REPLACE_WITH_ACCOUNT_ID-us-east-1
+  TemplatesBucketName: photo-uploader-cfn-templates-047719661196-us-east-1
 
   # Overwritten automatically by .github/workflows/package-templates.yml
   # every time cfn/modules/** changes -- see that workflow for the
