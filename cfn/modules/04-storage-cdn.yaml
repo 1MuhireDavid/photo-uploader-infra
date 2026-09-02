@@ -1,0 +1,119 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Private S3 bucket for uploaded photos, served to browsers exclusively
+  through CloudFront using Origin Access Control (OAC) -- the bucket has
+  no public access of any kind; only this exact CloudFront distribution
+  may read objects from it. The application uploads objects into the
+  bucket directly (via its ECS task IAM role), it never writes through
+  CloudFront.
+
+Parameters:
+  ProjectName:
+    Type: String
+  CloudFrontPriceClass:
+    Type: String
+    Default: PriceClass_200
+    AllowedValues: [PriceClass_100, PriceClass_200, PriceClass_All]
+
+Resources:
+
+  PhotosBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${ProjectName}-photos-${AWS::AccountId}-${AWS::Region}"
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: AbortIncompleteMultipartUploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-photos"
+
+  PhotosBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref PhotosBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource:
+              - !GetAtt PhotosBucket.Arn
+              - !Sub "${PhotosBucket.Arn}/*"
+            Condition:
+              Bool:
+                "aws:SecureTransport": "false"
+          # The ONLY read path into this bucket: CloudFront's own service
+          # principal, scoped further to THIS distribution's ARN so no
+          # other CloudFront distribution in any account could read it
+          # even if it somehow used the same OAC.
+          - Sid: AllowCloudFrontReadViaOAC
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: "s3:GetObject"
+            Resource: !Sub "${PhotosBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                "AWS:SourceArn": !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${PhotosDistribution.Id}"
+
+  PhotosOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "${ProjectName}-photos-oac"
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  PhotosDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Comment: !Sub "${ProjectName} - photo images (private S3 origin via OAC)"
+        Enabled: true
+        PriceClass: !Ref CloudFrontPriceClass
+        HttpVersion: http2
+        Origins:
+          - Id: PhotosS3Origin
+            DomainName: !GetAtt PhotosBucket.RegionalDomainName
+            OriginAccessControlId: !GetAtt PhotosOriginAccessControl.Id
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+        DefaultCacheBehavior:
+          TargetOriginId: PhotosS3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD]
+          CachedMethods: [GET, HEAD]
+          Compress: true
+          # AWS managed policy "CachingOptimized" -- long, immutable cache
+          # for static assets, no forwarded query strings/cookies/headers.
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-photos-cdn"
+
+Outputs:
+  PhotosBucketName:
+    Value: !Ref PhotosBucket
+  PhotosBucketArn:
+    Value: !GetAtt PhotosBucket.Arn
+  CloudFrontDomainName:
+    Value: !GetAtt PhotosDistribution.DomainName
+  CloudFrontDistributionId:
+    Value: !Ref PhotosDistribution

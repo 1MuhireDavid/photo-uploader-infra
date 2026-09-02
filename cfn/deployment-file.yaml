@@ -1,0 +1,76 @@
+# CloudFormation Git sync "deployment file".
+#
+# This is the file Git sync actually watches for changes (together with
+# the template it points to). When you first turn on Git sync in the
+# console you can either supply this file yourself (recommended -- it's
+# reviewable, versioned application config) or let Git sync generate one
+# for you as a pull request. If AWS's generated schema differs slightly
+# from below by the time you set this up, accept AWS's PR once and diff
+# it against this file rather than fighting the console.
+#
+# When you turn on Git sync in the console, point it at this file's path
+# within THIS repo (photo-uploader-infra):
+#   cfn/deployment-file.yaml
+# `template-file-path` below is resolved by Git sync RELATIVE TO THE REPO
+# ROOT, not relative to this file's own directory.
+#
+# Docs: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/git-sync-concepts-terms.html
+#
+# NOTE: the deployment file schema is only template-file-path/parameters/tags
+# -- there's no stack-name or capabilities field. The stack name and the
+# IAM-capability acknowledgment are both set in the console when
+# configuring Git sync for this stack, not in this file.
+
+template-file-path: cfn/root.yaml
+
+parameters:
+  ProjectName: photo-uploader
+
+  # Filled in from the bootstrap stack's outputs (bootstrap/00-bootstrap.yaml)
+  # -- copy the TemplatesBucketName output value here once, after the
+  # bootstrap stack is created.
+  TemplatesBucketName: photo-uploader-cfn-templates-REPLACE_WITH_ACCOUNT_ID-us-east-1
+
+  # Overwritten automatically by .github/workflows/package-templates.yml
+  # every time cfn/modules/** changes -- see that workflow for the
+  # commit-back step. Leave the placeholder below for the very first push.
+  TemplatesVersion: pending-first-push
+
+  VpcCIDR: 10.30.0.0/16
+  PublicSubnet1CIDR: 10.30.0.0/24
+  PublicSubnet2CIDR: 10.30.1.0/24
+  PrivateSubnet1CIDR: 10.30.10.0/24
+  PrivateSubnet2CIDR: 10.30.11.0/24
+  SingleNatGateway: "true"
+
+  CloudFrontPriceClass: PriceClass_200
+
+  DbInstanceClass: db.t3.micro
+  DbAllocatedStorage: 20
+  DbName: photogallery
+  DbMasterUsername: photoapp
+  DbMultiAZ: "false"
+  DbPort: 5432
+
+  ContainerPort: 8080
+  InitialImageTag: bootstrap
+  TaskCpu: "256"
+  TaskMemory: "512"
+  MinTasks: 1
+  DesiredTasks: 1
+  MaxTasks: 4
+  CpuTargetPercent: 60
+
+  AppOwnerName: "DAVID MUHIRE"
+  LabName: "Photo Uploader Lab"
+
+  GitHubOrg: 1MuhireDavid
+  AppRepoName: photo-uploader-app
+  AppRepoBranch: main
+  DeployedImageTag: latest
+
+tags:
+  Project: photo-uploader
+  ManagedBy: CloudFormation-GitSync
+  Environment: lab
+  Owner: DAVID MUHIRE
