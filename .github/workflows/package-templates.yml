@@ -27,6 +27,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # TEMPORARY debug step -- prints the actual OIDC token claims GitHub
+      # is issuing, plus which role ARN/region the workflow resolved from
+      # secrets/vars (partially masked). Helps diagnose AssumeRoleWithWebIdentity
+      # "Not authorized" errors that aren't explained by the role's trust
+      # policy itself (e.g. org-level OIDC subject-claim customization).
+      # Remove this step once the OIDC auth issue is resolved.
+      - name: Debug OIDC token claims
+        env:
+          ROLE_ARN: ${{ secrets.AWS_INFRA_PACKAGING_ROLE_ARN }}
+          REGION: ${{ vars.AWS_REGION }}
+        run: |
+          echo "Resolved role-to-assume length: ${#ROLE_ARN} chars"
+          echo "Resolved role-to-assume (masked): ${ROLE_ARN:0:20}...${ROLE_ARN: -10}"
+          echo "Resolved aws-region: '${REGION}'"
+          python3 -c "import os,json,base64,urllib.request as u; url=os.environ['ACTIONS_ID_TOKEN_REQUEST_URL']+'&audience=sts.amazonaws.com'; token=os.environ['ACTIONS_ID_TOKEN_REQUEST_TOKEN']; req=u.Request(url, headers={'Authorization':'bearer '+token}); jwt=json.load(u.urlopen(req))['value']; payload=jwt.split('.')[1]; payload+='='*(-len(payload)%4); claims=json.loads(base64.urlsafe_b64decode(payload)); keys=['sub','aud','repository','repository_owner','ref','job_workflow_ref','workflow_ref','event_name']; print(json.dumps({k: claims.get(k) for k in keys}, indent=2))"
+
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
