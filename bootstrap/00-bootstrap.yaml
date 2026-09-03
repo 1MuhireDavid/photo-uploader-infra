@@ -165,11 +165,17 @@ Resources:
               StringEquals:
                 "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
               StringLike:
-                # Trailing "*" tolerates GitHub's immutable owner/repo database
-                # ID suffix in the sub claim (e.g. "org@12345/repo@67890"),
-                # which GitHub now appends on some accounts/repos in addition
-                # to the plain "org/repo" form.
-                "token.actions.githubusercontent.com:sub": !Sub "repo:${GitHubOrg}*/${InfraRepoName}*:ref:${AllowedGitRef}"
+                # Two exact alternatives (StringLike list values are OR'd), not
+                # an open trailing wildcard: GitHub now appends an immutable
+                # owner/repo database ID to the sub claim on some
+                # accounts/repos ("org@12345/repo@67890") alongside the plain
+                # "org/repo" form, and both must be accepted. Listing the two
+                # concrete shapes keeps this an exact match either way, rather
+                # than a prefix match that would also accept unrelated
+                # org/repo names sharing the same prefix.
+                "token.actions.githubusercontent.com:sub":
+                  - !Sub "repo:${GitHubOrg}/${InfraRepoName}:ref:${AllowedGitRef}"
+                  - !Sub "repo:${GitHubOrg}@*/${InfraRepoName}@*:ref:${AllowedGitRef}"
                 "token.actions.githubusercontent.com:job_workflow_ref": !Sub "${GitHubOrg}/${InfraRepoName}/.github/workflows/${InfraPackagingWorkflowFile}@${AllowedGitRef}"
       Policies:
         - PolicyName: PutNestedTemplates
@@ -209,9 +215,12 @@ Resources:
               StringEquals:
                 "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
               StringLike:
-                # See the matching comment on InfraPackagingRole above --
-                # tolerates GitHub's optional immutable ID suffix in sub.
-                "token.actions.githubusercontent.com:sub": !Sub "repo:${GitHubOrg}*/${AppRepoName}*:ref:${AllowedGitRef}"
+                # See the matching comment on InfraPackagingRole above -- exact
+                # alternatives, not an open wildcard, for GitHub's optional
+                # immutable ID suffix in sub.
+                "token.actions.githubusercontent.com:sub":
+                  - !Sub "repo:${GitHubOrg}/${AppRepoName}:ref:${AllowedGitRef}"
+                  - !Sub "repo:${GitHubOrg}@*/${AppRepoName}@*:ref:${AllowedGitRef}"
                 "token.actions.githubusercontent.com:job_workflow_ref": !Sub "${GitHubOrg}/${AppRepoName}/.github/workflows/${AppBuildWorkflowFile}@${AllowedGitRef}"
       Policies:
         - PolicyName: EcrPushOnly
