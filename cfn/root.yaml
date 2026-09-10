@@ -2,9 +2,10 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: >
   ROOT STACK - deployed by CloudFormation Git sync. Wires together the
   nested stacks that make up the Photo Uploader lab:
-    01-network.yaml           Multi-AZ VPC, public/private subnets, NAT
+    01-network.yaml           Multi-AZ VPC, public/private subnets (no NAT)
     02-security.yaml           Least-privilege security groups
-    03-backing-services.yaml    ECR repo + private VPC endpoints
+    03-backing-services.yaml    Private VPC endpoints (ECR repo now lives
+                                 in bootstrap/00-bootstrap.yaml instead)
     04-storage-cdn.yaml           Private S3 photos bucket + CloudFront (OAC)
     05-database.yaml               RDS PostgreSQL (photo metadata)
     06-alb-ecs.yaml                  Public ALB, ECS cluster/service, auto scaling
@@ -32,13 +33,24 @@ Parameters:
       prefix on last push. Bumping this parameter is what makes Git sync
       pick up nested-template-only changes (see deployment-file.yaml).
 
+  # --- ECR (repo created once by the bootstrap stack, not here -- see
+  #     bootstrap/00-bootstrap.yaml for why) ---
+  EcrRepositoryUri:
+    Type: String
+    Description: RepositoryUri output from the bootstrap stack (bootstrap/00-bootstrap.yaml)
+  EcrRepositoryName:
+    Type: String
+    Description: EcrRepositoryName output from the bootstrap stack
+  EcrRepositoryArn:
+    Type: String
+    Description: EcrRepositoryArn output from the bootstrap stack
+
   # --- Networking ---
   VpcCIDR: { Type: String, Default: 10.30.0.0/16 }
   PublicSubnet1CIDR: { Type: String, Default: 10.30.0.0/24 }
   PublicSubnet2CIDR: { Type: String, Default: 10.30.1.0/24 }
   PrivateSubnet1CIDR: { Type: String, Default: 10.30.10.0/24 }
   PrivateSubnet2CIDR: { Type: String, Default: 10.30.11.0/24 }
-  SingleNatGateway: { Type: String, Default: "true", AllowedValues: ["true", "false"] }
 
   # --- Storage / CDN ---
   CloudFrontPriceClass:
@@ -56,7 +68,13 @@ Parameters:
 
   # --- Application / ECS ---
   ContainerPort: { Type: Number, Default: 8080 }
-  InitialImageTag: { Type: String, Default: bootstrap }
+  InitialImageTag:
+    Type: String
+    Default: latest
+    Description: >
+      Tag in ECR to deploy on the very first CREATE. Must already exist in
+      the repo (push it via the app repo's build workflow first) -- there's
+      no NAT Gateway in this VPC to fall back on a public placeholder image.
   TaskCpu: { Type: String, Default: "256" }
   TaskMemory: { Type: String, Default: "512" }
   MinTasks: { Type: Number, Default: 1 }
@@ -88,7 +106,6 @@ Resources:
         PublicSubnet2CIDR: !Ref PublicSubnet2CIDR
         PrivateSubnet1CIDR: !Ref PrivateSubnet1CIDR
         PrivateSubnet2CIDR: !Ref PrivateSubnet2CIDR
-        SingleNatGateway: !Ref SingleNatGateway
       Tags:
         - Key: Project
           Value: !Ref ProjectName
@@ -162,7 +179,7 @@ Resources:
         AlbSecurityGroupId: !GetAtt SecurityStack.Outputs.AlbSecurityGroupId
         EcsTaskSecurityGroupId: !GetAtt SecurityStack.Outputs.EcsTaskSecurityGroupId
         ContainerPort: !Ref ContainerPort
-        RepositoryUri: !GetAtt BackingServicesStack.Outputs.RepositoryUri
+        RepositoryUri: !Ref EcrRepositoryUri
         InitialImageTag: !Ref InitialImageTag
         TaskCpu: !Ref TaskCpu
         TaskMemory: !Ref TaskMemory
@@ -189,8 +206,8 @@ Resources:
       TemplateURL: !Sub "https://${TemplatesBucketName}.s3.${AWS::Region}.amazonaws.com/templates/${TemplatesVersion}/07-cicd-pipeline.yaml"
       Parameters:
         ProjectName: !Ref ProjectName
-        EcrRepositoryName: !GetAtt BackingServicesStack.Outputs.RepositoryName
-        EcrRepositoryArn: !GetAtt BackingServicesStack.Outputs.RepositoryArn
+        EcrRepositoryName: !Ref EcrRepositoryName
+        EcrRepositoryArn: !Ref EcrRepositoryArn
         ClusterName: !GetAtt AlbEcsStack.Outputs.ClusterName
         ServiceName: !GetAtt AlbEcsStack.Outputs.ServiceName
         ProdListenerArn: !GetAtt AlbEcsStack.Outputs.ProdListenerArn
@@ -206,7 +223,7 @@ Outputs:
     Description: Public URL of the application
     Value: !Sub "http://${AlbEcsStack.Outputs.AlbDnsName}"
   EcrRepositoryUri:
-    Value: !GetAtt BackingServicesStack.Outputs.RepositoryUri
+    Value: !Ref EcrRepositoryUri
   EcsClusterName:
     Value: !GetAtt AlbEcsStack.Outputs.ClusterName
   EcsServiceName:

@@ -61,7 +61,7 @@ Resources:
           FromPort: 443
           ToPort: 443
           CidrIp: 0.0.0.0/0
-          Description: HTTPS egress (ECR/logs/STS/Secrets Manager/S3 via VPC endpoints; 0.0.0.0/0 scoped by routing, no NAT needed for these calls)
+          Description: HTTPS egress (ECR/logs/STS/Secrets Manager/S3 via VPC endpoints only -- no NAT Gateway in this VPC, so 0.0.0.0/0 here is scoped by routing, not by this rule)
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-ecs-task-sg"
@@ -75,7 +75,7 @@ Resources:
         - IpProtocol: tcp
           FromPort: 443
           ToPort: 443
-          SourceSecurityGroupId: !Ref EcsTaskSecurityGroup
+          SourceSecurityGroupId: !Ref EcsTaskSecurityGroup   # vpc cidr 
           Description: HTTPS from ECS tasks only
       Tags:
         - Key: Name

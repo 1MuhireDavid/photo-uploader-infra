@@ -3,12 +3,18 @@ Description: >
   Bootstrap stack for the Photo Uploader lab (two-repo edition). Deployed
   ONCE, manually, before Git sync takes ownership of the rest of the
   stacks. Creates the S3 bucket that hosts nested CFN templates, the
-  GitHub OIDC provider, and two OIDC roles -- one for the infra repo's
-  template-packaging workflow, one for the app repo's build/push workflow.
-  Because the two workflows now live in genuinely separate repos, each
-  role's trust policy is already isolated by repo; it also checks GitHub's
-  job_workflow_ref claim as defense in depth, matching this account's
-  other labs.
+  GitHub OIDC provider, two OIDC roles -- one for the infra repo's
+  template-packaging workflow, one for the app repo's build/push workflow
+  -- and the app's ECR repository. Because the two workflows now live in
+  genuinely separate repos, each role's trust policy is already isolated
+  by repo; it also checks GitHub's job_workflow_ref claim as defense in
+  depth, matching this account's other labs.
+
+  The ECR repository lives here (not in a Git-sync-owned nested stack)
+  specifically so a real image can be pushed to it BEFORE the root stack
+  ever creates the ECS service -- this VPC has no NAT Gateway, so the ECS
+  task's very first CREATE can't fall back on pulling a public placeholder
+  image over the internet the way a NAT-backed setup could.
 
 Parameters:
   ProjectName:
@@ -147,7 +153,8 @@ Resources:
 
   # ---------------------------------------------------------------------
   # Role for the infra repo's template-packaging workflow. Scoped to (a)
-  # the infra repo + branch AND (b) this exact workflow file.
+  # the infra repo + branch (via the standard "repo:OWNER/REPO:ref:REF"
+  # sub claim) AND (b) this exact workflow file (via job_workflow_ref).
   # ---------------------------------------------------------------------
   InfraPackagingRole:
     Type: AWS::IAM::Role
@@ -165,17 +172,7 @@ Resources:
               StringEquals:
                 "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
               StringLike:
-                # Two exact alternatives (StringLike list values are OR'd), not
-                # an open trailing wildcard: GitHub now appends an immutable
-                # owner/repo database ID to the sub claim on some
-                # accounts/repos ("org@12345/repo@67890") alongside the plain
-                # "org/repo" form, and both must be accepted. Listing the two
-                # concrete shapes keeps this an exact match either way, rather
-                # than a prefix match that would also accept unrelated
-                # org/repo names sharing the same prefix.
-                "token.actions.githubusercontent.com:sub":
-                  - !Sub "repo:${GitHubOrg}/${InfraRepoName}:ref:${AllowedGitRef}"
-                  - !Sub "repo:${GitHubOrg}@*/${InfraRepoName}@*:ref:${AllowedGitRef}"
+                "token.actions.githubusercontent.com:sub": !Sub "repo:${GitHubOrg}/${InfraRepoName}:ref:${AllowedGitRef}"
                 "token.actions.githubusercontent.com:job_workflow_ref": !Sub "${GitHubOrg}/${InfraRepoName}/.github/workflows/${InfraPackagingWorkflowFile}@${AllowedGitRef}"
       Policies:
         - PolicyName: PutNestedTemplates
@@ -191,6 +188,51 @@ Resources:
                 Action: ["s3:PutObject", "s3:GetObject"]
                 Resource: !Sub "${TemplatesBucket.Arn}/templates/*"
       Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+
+  # ---------------------------------------------------------------------
+  # ECR repository for the application image. Created here (not in a
+  # Git-sync-owned nested stack) so it exists, and can already hold a real
+  # image, before the root stack's first CREATE ever runs -- see the
+  # top-of-file note on why (no NAT Gateway to fall back on).
+  # ---------------------------------------------------------------------
+  AppRepository:
+    Type: AWS::ECR::Repository
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      RepositoryName: !Sub "${ProjectName}-app"
+      # MUTABLE: rubric calls for a "consistent and mutable" tagging
+      # strategy. Every build pushes a floating ":latest" tag (what
+      # ECR PutImage/EventBridge/CodePipeline key off of) AND an immutable
+      # ":sha-<gitsha>" tag for traceability/rollback -- see the app repo's
+      # README.
+      ImageTagMutability: MUTABLE
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      EncryptionConfiguration:
+        EncryptionType: AES256
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Keep only the last 20 sha-tagged images",
+                "selection": {
+                  "tagStatus": "tagged",
+                  "tagPrefixList": ["sha-"],
+                  "countType": "imageCountMoreThan",
+                  "countNumber": 20
+                },
+                "action": { "type": "expire" }
+              }
+            ]
+          }
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-app"
         - Key: Project
           Value: !Ref ProjectName
 
@@ -215,12 +257,7 @@ Resources:
               StringEquals:
                 "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
               StringLike:
-                # See the matching comment on InfraPackagingRole above -- exact
-                # alternatives, not an open wildcard, for GitHub's optional
-                # immutable ID suffix in sub.
-                "token.actions.githubusercontent.com:sub":
-                  - !Sub "repo:${GitHubOrg}/${AppRepoName}:ref:${AllowedGitRef}"
-                  - !Sub "repo:${GitHubOrg}@*/${AppRepoName}@*:ref:${AllowedGitRef}"
+                "token.actions.githubusercontent.com:sub": !Sub "repo:${GitHubOrg}/${AppRepoName}:ref:${AllowedGitRef}"
                 "token.actions.githubusercontent.com:job_workflow_ref": !Sub "${GitHubOrg}/${AppRepoName}/.github/workflows/${AppBuildWorkflowFile}@${AllowedGitRef}"
       Policies:
         - PolicyName: EcrPushOnly
@@ -242,7 +279,7 @@ Resources:
                   - "ecr:BatchGetImage"
                   - "ecr:DescribeImages"
                   - "ecr:DescribeRepositories"
-                Resource: !Sub "arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${ProjectName}-app"
+                Resource: !GetAtt AppRepository.Arn
         - PolicyName: UploadDeployTemplates
           PolicyDocument:
             Version: "2012-10-17"
@@ -270,3 +307,12 @@ Outputs:
 
   AppEcrPushRoleArn:
     Value: !GetAtt AppEcrPushRole.Arn
+
+  EcrRepositoryUri:
+    Value: !GetAtt AppRepository.RepositoryUri
+
+  EcrRepositoryName:
+    Value: !Ref AppRepository
+
+  EcrRepositoryArn:
+    Value: !GetAtt AppRepository.Arn

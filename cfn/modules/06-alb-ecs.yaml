@@ -24,18 +24,18 @@ Parameters:
     Default: 8080
   RepositoryUri:
     Type: String
-    Description: ECR repository URI (from the backing-services nested stack)
+    Description: ECR repository URI (from the bootstrap stack -- see bootstrap/00-bootstrap.yaml)
   InitialImageTag:
     Type: String
-    Default: "bootstrap"
+    Default: "latest"
     Description: >
-      Special value "bootstrap" (default) deploys a public nginx
-      placeholder image instead of anything from our own (initially
-      empty) ECR repo, so the very first CREATE_COMPLETE doesn't depend on
-      an image that doesn't exist yet. Any other value is treated as a
-      real tag in our ECR repo. Once CodeDeploy performs the first real
-      blue/green release, it owns the running task definition -- this
-      parameter no longer matters until the next full CREATE.
+      Tag in our own ECR repo (RepositoryUri) to deploy on the very first
+      CREATE. There's no NAT Gateway or other internet egress in this VPC,
+      so a public placeholder image can't be pulled here -- push a real
+      image to ECR under this tag BEFORE creating this stack (see
+      README's "Full setup order"). Once CodeDeploy performs the first
+      real blue/green release, it owns the running task definition --
+      this parameter no longer matters until the next full CREATE.
   TaskCpu:
     Type: String
     Default: "256"
@@ -79,9 +79,6 @@ Parameters:
     Type: String
     Description: RDS-managed Secrets Manager secret ARN holding {username, password}
 
-Conditions:
-  UseBootstrapPlaceholder: !Equals [!Ref InitialImageTag, "bootstrap"]
-
 Resources:
 
   # ------------------------------- ALB ---------------------------------
@@ -108,11 +105,8 @@ Resources:
       Protocol: HTTP
       TargetType: ip
       VpcId: !Ref VpcId
-      # "/" rather than a dedicated health path: the bootstrap placeholder
-      # image (plain nginx) only knows how to answer "/" with 200, and the
-      # real app's gallery page at "/" also returns 200 when it (and its
-      # DB read) is healthy -- one path valid before AND after the first
-      # real deploy, and a DB outage correctly fails the health check
+      # The app's gallery page at "/" returns 200 when it (and its DB
+      # read) is healthy, so a DB outage correctly fails the health check
       # instead of masking it.
       HealthCheckPath: /
       HealthCheckIntervalSeconds: 15
@@ -244,21 +238,7 @@ Resources:
       TaskRoleArn: !GetAtt TaskRole.Arn
       ContainerDefinitions:
         - Name: !Sub "${ProjectName}-container"
-          Image: !If
-            - UseBootstrapPlaceholder
-            # Public nginx placeholder so CREATE_COMPLETE never depends on
-            # an image in our own (initially empty) ECR repo.
-            - "public.ecr.aws/nginx/nginx:1.27-alpine"
-            - !Sub "${RepositoryUri}:${InitialImageTag}"
-          # nginx's default listen port is 80; remap to ContainerPort so
-          # the ALB target group (fixed at ContainerPort) can health-check
-          # it. No-op / omitted entirely once the real app image is used.
-          Command: !If
-            - UseBootstrapPlaceholder
-            - - "/bin/sh"
-              - "-c"
-              - !Sub "sed -i 's/listen  *80;/listen ${ContainerPort};/' /etc/nginx/conf.d/default.conf && exec nginx -g 'daemon off;'"
-            - !Ref "AWS::NoValue"
+          Image: !Sub "${RepositoryUri}:${InitialImageTag}"
           Essential: true
           PortMappings:
             - ContainerPort: !Ref ContainerPort
@@ -293,9 +273,9 @@ Resources:
               awslogs-stream-prefix: app
     # NOTE: CodeDeploy blue/green deployments register a *new* task
     # definition revision on every release. This resource only defines
-    # revision 1 (the bootstrap placeholder image); CloudFormation must
-    # NOT try to "correct" the running revision back afterwards, so the
-    # ECS service below ignores TaskDefinition changes post-creation.
+    # revision 1 (the InitialImageTag image); CloudFormation must NOT try
+    # to "correct" the running revision back afterwards, so the ECS
+    # service below ignores TaskDefinition changes post-creation.
 
   EcsService:
     Type: AWS::ECS::Service

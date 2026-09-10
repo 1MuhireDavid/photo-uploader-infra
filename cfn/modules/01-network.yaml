@@ -3,9 +3,11 @@
 # (trivial change to retrigger packaging workflow after the OIDC fix: 2026-09-02)
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
-  Multi-AZ VPC for the Photo Uploader lab. 2 public subnets (ALB, NAT
-  gateways) and 2 private subnets (ECS Fargate tasks, RDS, and interface VPC
-  endpoints) spread across 2 Availability Zones for high availability.
+  Multi-AZ VPC for the Photo Uploader lab. 2 public subnets (ALB) and 2
+  private subnets (ECS Fargate tasks, RDS, and interface/gateway VPC
+  endpoints) spread across 2 Availability Zones for high availability. No
+  NAT Gateway -- all private-subnet egress that matters (ECR, CloudWatch
+  Logs, STS, Secrets Manager, S3) travels over VPC endpoints instead.
 
 Parameters:
   ProjectName:
@@ -30,20 +32,6 @@ Parameters:
   PrivateSubnet2CIDR:
     Type: String
     Default: 10.30.11.0/24
-
-  SingleNatGateway:
-    Type: String
-    Default: "true"
-    AllowedValues: ["true", "false"]
-    Description: >
-      "true" = 1 NAT Gateway (lower cost, single point of failure for
-      egress only -- ALB/ECS/RDS/ECR-via-endpoint all stay multi-AZ).
-      "false" = 1 NAT Gateway per AZ (fully HA egress, higher cost).
-      Recommended "false" for production, "true" is fine for this lab.
-
-Conditions:
-  UseSingleNat: !Equals [!Ref SingleNatGateway, "true"]
-  CreateSecondNat: !Not [!Condition UseSingleNat]
 
 Resources:
 
@@ -70,7 +58,7 @@ Resources:
       VpcId: !Ref VPC
       InternetGatewayId: !Ref InternetGateway
 
-  # ---------------- Public subnets (ALB + NAT gateways) ----------------
+  # ---------------- Public subnets (ALB only -- no NAT gateways) ----------------
   PublicSubnet1:
     Type: AWS::EC2::Subnet
     Properties:
@@ -142,38 +130,14 @@ Resources:
         - Key: Name
           Value: !Sub "${ProjectName}-private-az2"
 
-  # ---------------- NAT gateways (only used for egress not covered
-  #                   by a VPC endpoint, e.g. Fargate agent bootstrap) ---
-  Nat1EIP:
-    Type: AWS::EC2::EIP
-    Properties:
-      Domain: vpc
-
-  NatGateway1:
-    Type: AWS::EC2::NatGateway
-    Properties:
-      AllocationId: !GetAtt Nat1EIP.AllocationId
-      SubnetId: !Ref PublicSubnet1
-      Tags:
-        - Key: Name
-          Value: !Sub "${ProjectName}-nat-az1"
-
-  Nat2EIP:
-    Type: AWS::EC2::EIP
-    Condition: CreateSecondNat
-    Properties:
-      Domain: vpc
-
-  NatGateway2:
-    Type: AWS::EC2::NatGateway
-    Condition: CreateSecondNat
-    Properties:
-      AllocationId: !GetAtt Nat2EIP.AllocationId
-      SubnetId: !Ref PublicSubnet2
-      Tags:
-        - Key: Name
-          Value: !Sub "${ProjectName}-nat-az2"
-
+  # ---------------- Private route tables ----------------
+  # No default (0.0.0.0/0) route here -- there's no NAT Gateway or IGW
+  # attachment on these tables. Every destination the private subnets
+  # actually need (ECR, CloudWatch Logs, STS, Secrets Manager, S3) is
+  # reached over VPC endpoints instead: the interface endpoints resolve
+  # via private DNS to ENIs inside these subnets, and the S3 gateway
+  # endpoint adds its own prefix-list route directly to these route
+  # tables (see 03-backing-services.yaml).
   PrivateRouteTable1:
     Type: AWS::EC2::RouteTable
     Properties:
@@ -181,13 +145,6 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-private-rt-az1"
-
-  PrivateDefaultRoute1:
-    Type: AWS::EC2::Route
-    Properties:
-      RouteTableId: !Ref PrivateRouteTable1
-      DestinationCidrBlock: 0.0.0.0/0
-      NatGatewayId: !Ref NatGateway1
 
   PrivateSubnet1RTAssoc:
     Type: AWS::EC2::SubnetRouteTableAssociation
@@ -202,13 +159,6 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-private-rt-az2"
-
-  PrivateDefaultRoute2:
-    Type: AWS::EC2::Route
-    Properties:
-      RouteTableId: !Ref PrivateRouteTable2
-      DestinationCidrBlock: 0.0.0.0/0
-      NatGatewayId: !If [CreateSecondNat, !Ref NatGateway2, !Ref NatGateway1]
 
   PrivateSubnet2RTAssoc:
     Type: AWS::EC2::SubnetRouteTableAssociation

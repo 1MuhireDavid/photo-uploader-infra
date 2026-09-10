@@ -72,11 +72,8 @@
         <mxCell id="n8" value="Internet Gateway" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#8C4FFF;fontColor=#FFFFFF;strokeColor=none;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="450" y="190" width="150" height="35" as="geometry" />
         </mxCell>
-        <mxCell id="n9" value="NAT Gateway" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#8C4FFF;fontColor=#FFFFFF;strokeColor=none;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="450" y="270" width="140" height="40" as="geometry" />
-        </mxCell>
         <mxCell id="n10" value="Application Load Balancer&#10;(public, :80)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ED7100;fontColor=#FFFFFF;strokeColor=none;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="450" y="325" width="220" height="45" as="geometry" />
+          <mxGeometry x="450" y="270" width="220" height="45" as="geometry" />
         </mxCell>
 
         <!-- ===================== VPC: private subnet (ECS + endpoints + RDS) ===================== -->
