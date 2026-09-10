@@ -154,9 +154,14 @@ Resources:
         - 6938fd4d98bab03faadb97b34396831e3780aea1
 
   # ---------------------------------------------------------------------
-  # Role for the infra repo's template-packaging workflow. Scoped to (a)
-  # the infra repo + branch (via the standard "repo:OWNER/REPO:ref:REF"
-  # sub claim) AND (b) this exact workflow file (via job_workflow_ref).
+  # Role for the infra repo's template-packaging workflow. Scoped on the
+  # OIDC token's discrete repository/ref/job_workflow_ref claims (NOT the
+  # composite "sub" string): GitHub sometimes appends an immutable
+  # owner/repo database ID to sub ("org@12345/repo@67890"), which would
+  # otherwise force a StringLike wildcard here just to keep matching. The
+  # "repository" and "ref" claims are always plain, so this stays an exact
+  # StringEquals match on (a) this repo, (b) this branch, and (c) this
+  # exact workflow file -- with no wildcard surface at all.
   # ---------------------------------------------------------------------
   InfraPackagingRole:
     Type: AWS::IAM::Role
@@ -173,8 +178,8 @@ Resources:
             Condition:
               StringEquals:
                 "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
-              StringLike:
-                "token.actions.githubusercontent.com:sub": !Sub "repo:${GitHubOrg}/${InfraRepoName}:ref:${AllowedGitRef}"
+                "token.actions.githubusercontent.com:repository": !Sub "${GitHubOrg}/${InfraRepoName}"
+                "token.actions.githubusercontent.com:ref": !Ref AllowedGitRef
                 "token.actions.githubusercontent.com:job_workflow_ref": !Sub "${GitHubOrg}/${InfraRepoName}/.github/workflows/${InfraPackagingWorkflowFile}@${AllowedGitRef}"
       Policies:
         - PolicyName: PutNestedTemplates
@@ -239,8 +244,11 @@ Resources:
           Value: !Ref ProjectName
 
   # ---------------------------------------------------------------------
-  # Role for the app repo's build/push workflow. Scoped to (a) the app
-  # repo + branch AND (b) this exact workflow file, plus push-only ECR
+  # Role for the app repo's build/push workflow. Scoped on the OIDC
+  # token's discrete repository/ref/job_workflow_ref claims (see the
+  # matching comment on InfraPackagingRole above for why -- not the
+  # composite "sub" string, which GitHub can suffix with an immutable
+  # owner/repo database ID and force a wildcard match), plus push-only ECR
   # actions on a single, named repository ARN.
   # ---------------------------------------------------------------------
   AppEcrPushRole:
@@ -258,8 +266,8 @@ Resources:
             Condition:
               StringEquals:
                 "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
-              StringLike:
-                "token.actions.githubusercontent.com:sub": !Sub "repo:${GitHubOrg}/${AppRepoName}:ref:${AllowedGitRef}"
+                "token.actions.githubusercontent.com:repository": !Sub "${GitHubOrg}/${AppRepoName}"
+                "token.actions.githubusercontent.com:ref": !Ref AllowedGitRef
                 "token.actions.githubusercontent.com:job_workflow_ref": !Sub "${GitHubOrg}/${AppRepoName}/.github/workflows/${AppBuildWorkflowFile}@${AllowedGitRef}"
       Policies:
         - PolicyName: EcrPushOnly
