@@ -44,7 +44,7 @@ jobs:
       - name: Upload nested templates to S3
         run: |
           aws s3 cp "cfn/modules/" \
-            "s3://${{ secrets.AWS_TEMPLATES_BUCKET }}/templates/${{ steps.version.outputs.sha }}/" \
+            "s3://${{ vars.AWS_TEMPLATES_BUCKET }}/templates/${{ steps.version.outputs.sha }}/" \
             --recursive --exclude "*" --include "*.yaml"
 
       - name: Print next manual step

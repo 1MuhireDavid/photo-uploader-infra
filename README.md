@@ -187,28 +187,41 @@ image (steps 3–4) *before* Git sync ever runs (step 7).
    `InfraPackagingRoleArn`, `AppEcrPushRoleArn`) — the other three
    (`EcrRepositoryUri`/`Name`/`Arn`) are consumed automatically later, no
    copying needed.
-2. **Add this repo's secrets** (GitHub's UI): go to
+2. **Add this repo's secrets and variables** (GitHub's UI): go to
    `github.com/1MuhireDavid/photo-uploader-infra` → **Settings → Secrets
-   and variables → Actions**, and add:
+   and variables → Actions**. Only the role ARN is a **Secret** — it's not
+   exploitable on its own (the trust policy's `sub`/`job_workflow_ref`
+   conditions gate who can actually assume it, not knowledge of the ARN),
+   but it's still account information not worth printing in plain text in
+   every workflow log, so it stays masked. The bucket name is pure
+   non-sensitive config, so it's a **Variable**:
 
    | Secret name | Value |
    |---|---|
    | `AWS_INFRA_PACKAGING_ROLE_ARN` | the `InfraPackagingRoleArn` output |
-   | `AWS_TEMPLATES_BUCKET` | the `TemplatesBucketName` output |
 
-   Then under **Variables**, add `AWS_REGION` = the region you deployed
-   into (step 1).
-3. **Add the app repo's secrets** — same Console flow, but on
-   `github.com/1MuhireDavid/photo-uploader-app`:
+   | Variable name | Value |
+   |---|---|
+   | `AWS_TEMPLATES_BUCKET` | the `TemplatesBucketName` output |
+   | `AWS_REGION` | the region you deployed into (step 1) |
+3. **Add the app repo's secrets and variables** — same Console flow and
+   same reasoning, but on `github.com/1MuhireDavid/photo-uploader-app`:
 
    | Secret name | Value |
    |---|---|
    | `AWS_ECR_PUSH_ROLE_ARN` | the `AppEcrPushRoleArn` output |
-   | `ECR_REPOSITORY` | `photo-uploader-app` |
 
-   And `AWS_REGION` under **Variables**, same value as above. Leave
-   `PIPELINE_ARTIFACT_BUCKET` unset for now — it doesn't exist until
-   step 8.
+   | Variable name | Value |
+   |---|---|
+   | `ECR_REPOSITORY` | `photo-uploader-app` |
+   | `AWS_REGION` | same value as above |
+
+   Leave `PIPELINE_ARTIFACT_BUCKET` unset for now — it doesn't exist
+   until step 8. **Note:** `photo-uploader-app`'s own
+   `build-and-push.yml` workflow needs to reference these as
+   `${{ vars.ECR_REPOSITORY }}` / `${{ vars.AWS_REGION }}` (not
+   `secrets.*`) for this to actually work — that workflow lives in the
+   app repo, not here, so update it there too.
 4. **Push the app now, before the root stack exists** — see
    `photo-uploader-app`'s README for filling in `ecs/taskdef.json` and
    triggering the build workflow. This pushes a real `:latest` image to
