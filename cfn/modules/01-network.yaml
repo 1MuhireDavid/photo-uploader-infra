@@ -137,7 +137,7 @@ Resources:
   # reached over VPC endpoints instead: the interface endpoints resolve
   # via private DNS to ENIs inside these subnets, and the S3 gateway
   # endpoint adds its own prefix-list route directly to these route
-  # tables (see 03-backing-services.yaml).
+  # tables (see 03-vpc-endpoints.yaml).
   PrivateRouteTable1:
     Type: AWS::EC2::RouteTable
     Properties:

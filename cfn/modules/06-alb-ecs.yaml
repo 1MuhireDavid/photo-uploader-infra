@@ -22,6 +22,16 @@ Parameters:
   ContainerPort:
     Type: Number
     Default: 8080
+  TestListenerPort:
+    Type: Number
+    Default: 8081
+    Description: >
+      Second ALB listener port, used only during a deployment: CodeDeploy
+      points it at the "green" (candidate) target group before any prod
+      traffic shifts, so http://<alb-dns>:<this-port> serves the new
+      version for pre-production validation while the prod listener (80)
+      still serves the current "blue" version. Distinct from ContainerPort
+      -- this is an ALB listener port, not the container's port.
   RepositoryUri:
     Type: String
     Description: ECR repository URI (from the bootstrap stack -- see bootstrap/00-bootstrap.yaml)
@@ -145,6 +155,24 @@ Resources:
           TargetGroupArn: !Ref BlueTargetGroup
           # CodeDeploy rewrites this default action's target group during
           # each blue/green deployment -- do not drift-correct manually.
+
+  # Pre-production validation listener. CodeDeploy's TestTrafficRoute
+  # (07-cicd-pipeline.yaml) points this at the green target group as soon
+  # as the new task set is healthy, BEFORE ProdListener's traffic shifts --
+  # combined with DeploymentReadyOption: STOP_DEPLOYMENT there, the
+  # deployment then pauses so http://<alb-dns>:${TestListenerPort} can be
+  # checked by hand before promoting (or letting it time out and roll
+  # back). Same default-action caveat as ProdListener: CodeDeploy rewrites
+  # this on every deployment, don't drift-correct manually.
+  TestListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: !Ref TestListenerPort
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref BlueTargetGroup
 
   # ------------------------------- ECS -----------------------------------
   EcsCluster:
@@ -334,6 +362,8 @@ Outputs:
     Value: !GetAtt ApplicationLoadBalancer.CanonicalHostedZoneID
   ProdListenerArn:
     Value: !Ref ProdListener
+  TestListenerArn:
+    Value: !Ref TestListener
   BlueTargetGroupName:
     Value: !GetAtt BlueTargetGroup.TargetGroupName
   GreenTargetGroupName:

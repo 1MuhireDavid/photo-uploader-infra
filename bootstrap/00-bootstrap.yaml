@@ -1,4 +1,12 @@
 AWSTemplateFormatVersion: "2010-09-09"
+# The ECR repository lives here (not in a Git-sync-owned nested stack)
+# specifically so a real image can be pushed to it BEFORE the root stack
+# ever creates the ECS service -- this VPC has no NAT Gateway, so the ECS
+# task's very first CREATE can't fall back on pulling a public placeholder
+# image over the internet the way a NAT-backed setup could. Its
+# TemplatesBucketName/EcrRepositoryUri/EcrRepositoryName/EcrRepositoryArn
+# outputs below are each a CloudFormation Export, consumed automatically
+# by cfn/root.yaml via Fn::ImportValue -- see root.yaml's own top comment.
 Description: >
   Bootstrap stack for the Photo Uploader lab (two-repo edition). Deployed
   ONCE, manually, before Git sync takes ownership of the rest of the
@@ -9,12 +17,6 @@ Description: >
   genuinely separate repos, each role's trust policy is already isolated
   by repo; it also checks GitHub's job_workflow_ref claim as defense in
   depth, matching this account's other labs.
-
-  The ECR repository lives here (not in a Git-sync-owned nested stack)
-  specifically so a real image can be pushed to it BEFORE the root stack
-  ever creates the ECS service -- this VPC has no NAT Gateway, so the ECS
-  task's very first CREATE can't fall back on pulling a public placeholder
-  image over the internet the way a NAT-backed setup could.
 
 Parameters:
   ProjectName:
@@ -297,22 +299,39 @@ Resources:
           Value: !Ref ProjectName
 
 Outputs:
+  # These four are consumed automatically by cfn/root.yaml via
+  # Fn::ImportValue -- NOT copy-pasted into cfn/deployment-file.yaml.
+  # That only works because both stacks are keyed off the same
+  # ProjectName ("photo-uploader" by default in both places): if you ever
+  # deploy this bootstrap stack with a different ProjectName than
+  # root.yaml uses, the Fn::ImportValue lookups in root.yaml will fail to
+  # resolve ("No export named ... found") since the export name embeds
+  # ProjectName. Keep the two in sync.
   TemplatesBucketName:
     Value: !Ref TemplatesBucket
     Export:
       Name: !Sub "${ProjectName}-templates-bucket"
 
+  EcrRepositoryUri:
+    Value: !GetAtt AppRepository.RepositoryUri
+    Export:
+      Name: !Sub "${ProjectName}-ecr-repository-uri"
+
+  EcrRepositoryName:
+    Value: !Ref AppRepository
+    Export:
+      Name: !Sub "${ProjectName}-ecr-repository-name"
+
+  EcrRepositoryArn:
+    Value: !GetAtt AppRepository.Arn
+    Export:
+      Name: !Sub "${ProjectName}-ecr-repository-arn"
+
+  # These two are NOT consumed by any CloudFormation stack -- they're
+  # copy-pasted by hand into GitHub repo secrets (see README's "Full setup
+  # order"), so a CFN Export would add nothing here.
   InfraPackagingRoleArn:
     Value: !GetAtt InfraPackagingRole.Arn
 
   AppEcrPushRoleArn:
     Value: !GetAtt AppEcrPushRole.Arn
-
-  EcrRepositoryUri:
-    Value: !GetAtt AppRepository.RepositoryUri
-
-  EcrRepositoryName:
-    Value: !Ref AppRepository
-
-  EcrRepositoryArn:
-    Value: !GetAtt AppRepository.Arn

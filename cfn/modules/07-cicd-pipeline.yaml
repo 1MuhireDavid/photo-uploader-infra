@@ -5,8 +5,12 @@ Description: >
   and (2) the appspec.yaml/taskdef.json deployment templates, zipped up
   and uploaded to S3 by the separate photo-uploader-app repo's build
   workflow, then hands both to CodeDeploy, which performs a blue/green
-  ECS deployment (traffic shifted from the "blue" target group to
-  "green").
+  ECS deployment: green gets the new task set, TestListenerArn is pointed
+  at it for pre-production validation, the deployment then PAUSES
+  (DeploymentReadyOption: STOP_DEPLOYMENT below) until a human runs
+  `aws deploy continue-deployment` to shift real (prod) traffic from
+  "blue" to "green", or DeploymentReadyWaitMinutes elapses and CodeDeploy
+  automatically stops/rolls back instead.
 
 Parameters:
   ProjectName:
@@ -21,6 +25,22 @@ Parameters:
     Type: String
   ProdListenerArn:
     Type: String
+  TestListenerArn:
+    Type: String
+    Description: >
+      ALB listener CodeDeploy points at the "green" target group for
+      pre-production validation before any prod traffic shifts (see
+      06-alb-ecs.yaml's TestListener).
+  DeploymentReadyWaitMinutes:
+    Type: Number
+    Default: 30
+    Description: >
+      Minutes CodeDeploy waits, after routing TestListenerArn to the new
+      "green" task set, for a human to validate it and run
+      `aws deploy continue-deployment` (or click Continue deployment in
+      the console). If nobody does within this window, CodeDeploy stops
+      the deployment and rolls back -- prod traffic (ProdListenerArn)
+      never sees the untested version either way.
   BlueTargetGroupName:
     Type: String
   GreenTargetGroupName:
@@ -101,8 +121,19 @@ Resources:
         DeploymentType: BLUE_GREEN
         DeploymentOption: WITH_TRAFFIC_CONTROL
       BlueGreenDeploymentConfiguration:
+        # STOP_DEPLOYMENT (not CONTINUE_DEPLOYMENT): once the green task
+        # set is healthy and TestTrafficRoute below is pointed at it,
+        # CodeDeploy pauses here rather than immediately shifting prod
+        # traffic -- that pause IS the pre-production validation gate.
+        # Resume with `aws deploy continue-deployment --deployment-id
+        # <id> --deployment-wait-type READY_WAIT` (or the console's
+        # "Continue deployment" button) once you've checked
+        # http://<alb-dns>:<TestListenerPort>. Left untouched for
+        # DeploymentReadyWaitMinutes, CodeDeploy stops the deployment
+        # and rolls back instead of guessing.
         DeploymentReadyOption:
-          ActionOnTimeout: CONTINUE_DEPLOYMENT
+          ActionOnTimeout: STOP_DEPLOYMENT
+          WaitTimeInMinutes: !Ref DeploymentReadyWaitMinutes
         TerminateBlueInstancesOnDeploymentSuccess:
           Action: TERMINATE
           TerminationWaitTimeInMinutes: 10
@@ -113,6 +144,8 @@ Resources:
         TargetGroupPairInfoList:
           - ProdTrafficRoute:
               ListenerArns: [!Ref ProdListenerArn]
+            TestTrafficRoute:
+              ListenerArns: [!Ref TestListenerArn]
             TargetGroups:
               - Name: !Ref BlueTargetGroupName
               - Name: !Ref GreenTargetGroupName
