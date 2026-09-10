@@ -3,7 +3,7 @@ Description: >
   Least-privilege security groups for the Photo Uploader lab. Traffic path
   enforced by SG rules only (defense in depth, no wide-open ingress
   anywhere):
-    Internet    -> ALB SG (80)
+    Internet    -> ALB SG (80 prod, TestListenerPort pre-prod validation)
     ALB SG      -> ECS Task SG (container port only)
     ECS Task SG -> VPC Endpoint SG (443 only, for ECR/logs/STS/Secrets Manager)
     ECS Task SG -> RDS SG (5432 only)
@@ -21,6 +21,20 @@ Parameters:
   DbPort:
     Type: Number
     Default: 5432
+  TestListenerPort:
+    Type: Number
+    Default: 8081
+    Description: >
+      ALB's pre-production validation listener port (see 06-alb-ecs.yaml's
+      TestListener). Kept as wide-open as the prod listener by default
+      (TestListenerAllowedCidr) since this is a lab with no VPN/internal
+      network to restrict it to -- tighten TestListenerAllowedCidr to your
+      own IP/office CIDR in a real environment, since this listener can
+      briefly serve an unvalidated "green" build.
+  TestListenerAllowedCidr:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: CIDR allowed to reach TestListenerPort. Restrict this in a non-lab environment.
 
 Resources:
 
@@ -34,7 +48,12 @@ Resources:
           FromPort: 80
           ToPort: 80
           CidrIp: 0.0.0.0/0
-          Description: HTTP from internet
+          Description: HTTP from internet (prod listener)
+        - IpProtocol: tcp
+          FromPort: !Ref TestListenerPort
+          ToPort: !Ref TestListenerPort
+          CidrIp: !Ref TestListenerAllowedCidr
+          Description: Pre-production validation listener (CodeDeploy test traffic route)
       SecurityGroupEgress:
         - IpProtocol: tcp
           FromPort: !Ref ContainerPort
@@ -61,7 +80,7 @@ Resources:
           FromPort: 443
           ToPort: 443
           CidrIp: 0.0.0.0/0
-          Description: HTTPS egress (ECR/logs/STS/Secrets Manager/S3 via VPC endpoints; 0.0.0.0/0 scoped by routing, no NAT needed for these calls)
+          Description: HTTPS egress (ECR/logs/STS/Secrets Manager/S3 via VPC endpoints only -- no NAT Gateway in this VPC, so 0.0.0.0/0 here is scoped by routing, not by this rule)
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-ecs-task-sg"
@@ -75,7 +94,7 @@ Resources:
         - IpProtocol: tcp
           FromPort: 443
           ToPort: 443
-          SourceSecurityGroupId: !Ref EcsTaskSecurityGroup
+          SourceSecurityGroupId: !Ref EcsTaskSecurityGroup   # vpc cidr 
           Description: HTTPS from ECS tasks only
       Tags:
         - Key: Name

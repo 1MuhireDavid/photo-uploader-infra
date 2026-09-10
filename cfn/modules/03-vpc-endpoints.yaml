@@ -1,9 +1,30 @@
 AWSTemplateFormatVersion: "2010-09-09"
+# Why this is its own module instead of folding into 01-network.yaml:
+# these endpoints need VpcEndpointSecurityGroupId, an output of
+# 02-security.yaml, which itself needs the VPC from 01-network.yaml.
+# Putting endpoints in the network module would make Network depend on
+# Security depend on Network -- a cycle CloudFormation nested stacks can't
+# express. This module sits after both in the dependency order instead
+# (see root.yaml), which is also why it stays a distinct file even though
+# it's small.
+#
+# Historical note: this module used to also own the ECR repository and
+# was named 03-backing-services.yaml; renamed to 03-vpc-endpoints.yaml
+# when the repository moved to the bootstrap stack, since VPC endpoints
+# are now the whole of its content. The nested-stack logical ID in
+# root.yaml, BackingServicesStack, was deliberately left unchanged --
+# renaming a logical ID replaces the resource, which for a live nested
+# stack means deleting and recreating every endpoint in it.
+#
+# (This lives in a comment, not Description:, because Description has a
+# hard 1024-character CloudFormation limit and this text is longer.)
 Description: >
-  ECR repository for the application image, plus the VPC interface/gateway
-  endpoints that let private-subnet Fargate tasks reach ECR, CloudWatch
-  Logs, STS, Secrets Manager (for the RDS-managed DB credential), and S3
-  (ECR layer storage + photo uploads) without a route to the internet.
+  VPC interface/gateway endpoints that let private-subnet Fargate tasks
+  reach ECR, CloudWatch Logs, STS, Secrets Manager (for the RDS-managed DB
+  credential), and S3 (ECR layer storage + photo uploads) without a route
+  to the internet -- there is no NAT Gateway in this VPC. (The ECR
+  repository itself lives in bootstrap/00-bootstrap.yaml, not here -- see
+  the file-level comment above for why this module exists separately.)
 
 Parameters:
   ProjectName:
@@ -20,41 +41,6 @@ Parameters:
 
 Resources:
 
-  AppRepository:
-    Type: AWS::ECR::Repository
-    Properties:
-      RepositoryName: !Sub "${ProjectName}-app"
-      # MUTABLE: rubric calls for a "consistent and mutable" tagging
-      # strategy. Every build pushes a floating ":latest" tag (what
-      # ECR PutImage/EventBridge/CodePipeline key off of) AND an immutable
-      # ":sha-<gitsha>" tag for traceability/rollback -- see ../../README.md
-      # in the app repo.
-      ImageTagMutability: MUTABLE
-      ImageScanningConfiguration:
-        ScanOnPush: true
-      EncryptionConfiguration:
-        EncryptionType: AES256
-      LifecyclePolicy:
-        LifecyclePolicyText: |
-          {
-            "rules": [
-              {
-                "rulePriority": 1,
-                "description": "Keep only the last 20 sha-tagged images",
-                "selection": {
-                  "tagStatus": "tagged",
-                  "tagPrefixList": ["sha-"],
-                  "countType": "imageCountMoreThan",
-                  "countNumber": 20
-                },
-                "action": { "type": "expire" }
-              }
-            ]
-          }
-      Tags:
-        - Key: Name
-          Value: !Sub "${ProjectName}-app"
-
   # ---------------------------------------------------------------------
   # Interface endpoints. Private DNS enabled so the AWS SDK/CLI/Docker
   # daemon inside the task need no code changes.
@@ -68,6 +54,9 @@ Resources:
       SubnetIds: !Ref PrivateSubnetIds
       SecurityGroupIds: [!Ref VpcEndpointSecurityGroupId]
       PrivateDnsEnabled: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-vpce-ecr-api"
 
   EcrDkrEndpoint:
     Type: AWS::EC2::VPCEndpoint
@@ -78,6 +67,9 @@ Resources:
       SubnetIds: !Ref PrivateSubnetIds
       SecurityGroupIds: [!Ref VpcEndpointSecurityGroupId]
       PrivateDnsEnabled: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-vpce-ecr-dkr"
 
   LogsEndpoint:
     Type: AWS::EC2::VPCEndpoint
@@ -88,6 +80,9 @@ Resources:
       SubnetIds: !Ref PrivateSubnetIds
       SecurityGroupIds: [!Ref VpcEndpointSecurityGroupId]
       PrivateDnsEnabled: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-vpce-logs"
 
   StsEndpoint:
     Type: AWS::EC2::VPCEndpoint
@@ -98,11 +93,14 @@ Resources:
       SubnetIds: !Ref PrivateSubnetIds
       SecurityGroupIds: [!Ref VpcEndpointSecurityGroupId]
       PrivateDnsEnabled: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-vpce-sts"
 
   # Needed because ECS fetches the RDS-managed master credential (a
   # Secrets Manager secret injected via the task definition's `Secrets`
-  # field) from a private subnet -- without this endpoint that call would
-  # need the NAT Gateway.
+  # field) from a private subnet -- there's no NAT Gateway in this VPC, so
+  # this endpoint is the only way that call reaches Secrets Manager.
   SecretsManagerEndpoint:
     Type: AWS::EC2::VPCEndpoint
     Properties:
@@ -112,6 +110,9 @@ Resources:
       SubnetIds: !Ref PrivateSubnetIds
       SecurityGroupIds: [!Ref VpcEndpointSecurityGroupId]
       PrivateDnsEnabled: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-vpce-secretsmanager"
 
   # ECR image layers are stored in S3, and the app itself uploads photos to
   # S3 -- both travel over this free gateway endpoint (route table entry,
@@ -123,11 +124,6 @@ Resources:
       VpcEndpointType: Gateway
       ServiceName: !Sub "com.amazonaws.${AWS::Region}.s3"
       RouteTableIds: !Ref PrivateRouteTableIds
-
-Outputs:
-  RepositoryUri:
-    Value: !GetAtt AppRepository.RepositoryUri
-  RepositoryName:
-    Value: !Ref AppRepository
-  RepositoryArn:
-    Value: !GetAtt AppRepository.Arn
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-vpce-s3"

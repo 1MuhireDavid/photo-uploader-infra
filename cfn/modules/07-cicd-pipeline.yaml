@@ -2,10 +2,15 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: >
   Deployment pipeline: EventBridge detects a new image PUSH to ECR and
   starts CodePipeline. CodePipeline pulls (1) the image reference from ECR
-  and (2) the appspec.yaml/taskdef.json deployment templates from the
-  separate photo-uploader-app GitHub repo, then hands both to CodeDeploy,
-  which performs a blue/green ECS deployment (traffic shifted from the
-  "blue" target group to "green").
+  and (2) the appspec.yaml/taskdef.json deployment templates, zipped up
+  and uploaded to S3 by the separate photo-uploader-app repo's build
+  workflow, then hands both to CodeDeploy, which performs a blue/green
+  ECS deployment: green gets the new task set, TestListenerArn is pointed
+  at it for pre-production validation, the deployment then PAUSES
+  (DeploymentReadyOption: STOP_DEPLOYMENT below) until a human runs
+  `aws deploy continue-deployment` to shift real (prod) traffic from
+  "blue" to "green", or DeploymentReadyWaitMinutes elapses and CodeDeploy
+  automatically stops/rolls back instead.
 
 Parameters:
   ProjectName:
@@ -20,24 +25,39 @@ Parameters:
     Type: String
   ProdListenerArn:
     Type: String
+  TestListenerArn:
+    Type: String
+    Description: >
+      ALB listener CodeDeploy points at the "green" target group for
+      pre-production validation before any prod traffic shifts (see
+      06-alb-ecs.yaml's TestListener).
+  DeploymentReadyWaitMinutes:
+    Type: Number
+    Default: 30
+    Description: >
+      Minutes CodeDeploy waits, after routing TestListenerArn to the new
+      "green" task set, for a human to validate it and run
+      `aws deploy continue-deployment` (or click Continue deployment in
+      the console). If nobody does within this window, CodeDeploy stops
+      the deployment and rolls back -- prod traffic (ProdListenerArn)
+      never sees the untested version either way.
   BlueTargetGroupName:
     Type: String
   GreenTargetGroupName:
     Type: String
-  GitHubOrg:
-    Type: String
-  AppRepoName:
-    Type: String
-    Default: photo-uploader-app
-    Description: The separate app repo -- source of ecs/appspec.yaml and ecs/taskdef.json
-  AppRepoBranch:
-    Type: String
-    Default: main
   # Path, relative to the app repo root, that holds appspec.yaml and
-  # taskdef.json.
+  # taskdef.json (used only for the object's internal zip layout / the
+  # CodeDeploy action's TemplatePath below).
   DeployTemplatesPath:
     Type: String
     Default: ecs
+  DeployTemplatesS3Key:
+    Type: String
+    Default: deploy-templates/deploy-templates.zip
+    Description: >
+      Key, inside ArtifactBucket, that the app repo's build workflow
+      uploads its ecs/appspec.yaml + ecs/taskdef.json zip to. Must match
+      the key that workflow uploads to.
   DeployedImageTag:
     Type: String
     Default: latest
@@ -46,21 +66,6 @@ Parameters:
       tag EventBridge/CodePipeline pick up as "the newest version."
 
 Resources:
-
-  # ---------------------------------------------------------------------
-  # One-time-authorize connection to GitHub, used only to fetch the
-  # appspec/taskdef templates (read-only "Source" action). This is AWS's
-  # native CodeConnections mechanism (GitHub App install), separate from
-  # the OIDC roles used by GitHub Actions -- see ../../README.md for why
-  # these are two different, intentional auth mechanisms.
-  # ---------------------------------------------------------------------
-  GitHubConnection:
-    Type: AWS::CodeStarConnections::Connection
-    Properties:
-      # ConnectionName has a 32-char AWS limit; "${ProjectName}-github-connection"
-      # runs over it, hence the shorter "-github-conn" suffix here.
-      ConnectionName: !Sub "${ProjectName}-github-conn"
-      ProviderType: GitHub
 
   ArtifactBucket:
     Type: AWS::S3::Bucket
@@ -116,8 +121,19 @@ Resources:
         DeploymentType: BLUE_GREEN
         DeploymentOption: WITH_TRAFFIC_CONTROL
       BlueGreenDeploymentConfiguration:
+        # STOP_DEPLOYMENT (not CONTINUE_DEPLOYMENT): once the green task
+        # set is healthy and TestTrafficRoute below is pointed at it,
+        # CodeDeploy pauses here rather than immediately shifting prod
+        # traffic -- that pause IS the pre-production validation gate.
+        # Resume with `aws deploy continue-deployment --deployment-id
+        # <id> --deployment-wait-type READY_WAIT` (or the console's
+        # "Continue deployment" button) once you've checked
+        # http://<alb-dns>:<TestListenerPort>. Left untouched for
+        # DeploymentReadyWaitMinutes, CodeDeploy stops the deployment
+        # and rolls back instead of guessing.
         DeploymentReadyOption:
-          ActionOnTimeout: CONTINUE_DEPLOYMENT
+          ActionOnTimeout: STOP_DEPLOYMENT
+          WaitTimeInMinutes: !Ref DeploymentReadyWaitMinutes
         TerminateBlueInstancesOnDeploymentSuccess:
           Action: TERMINATE
           TerminationWaitTimeInMinutes: 10
@@ -128,6 +144,8 @@ Resources:
         TargetGroupPairInfoList:
           - ProdTrafficRoute:
               ListenerArns: [!Ref ProdListenerArn]
+            TestTrafficRoute:
+              ListenerArns: [!Ref TestListenerArn]
             TargetGroups:
               - Name: !Ref BlueTargetGroupName
               - Name: !Ref GreenTargetGroupName
@@ -161,10 +179,6 @@ Resources:
                   - "ecr:GetDownloadUrlForLayer"
                   - "ecr:BatchGetImage"
                 Resource: !Ref EcrRepositoryArn
-              - Sid: GitHubConnectionUse
-                Effect: Allow
-                Action: "codestar-connections:UseConnection"
-                Resource: !Ref GitHubConnection
               - Sid: CodeDeployTrigger
                 Effect: Allow
                 Action:
@@ -220,19 +234,17 @@ Resources:
               ActionTypeId:
                 Category: Source
                 Owner: AWS
-                Provider: CodeStarSourceConnection
+                Provider: S3
                 Version: "1"
               Configuration:
-                ConnectionArn: !Ref GitHubConnection
-                FullRepositoryId: !Sub "${GitHubOrg}/${AppRepoName}"
-                BranchName: !Ref AppRepoBranch
-                # false, deliberately: the ECR PUSH EventBridge rule is
-                # the only intended trigger for this pipeline. This action
-                # still pulls the latest appspec.yaml/taskdef.json from
-                # the app repo every time the pipeline runs -- DetectChanges
-                # just controls whether IT can also start a run (e.g. on
-                # an unrelated README edit in the app repo).
-                DetectChanges: "false"
+                S3Bucket: !Ref ArtifactBucket
+                S3ObjectKey: !Ref DeployTemplatesS3Key
+                # false, deliberately: the ECR PUSH EventBridge rule is the
+                # only intended trigger for this pipeline. This action still
+                # pulls whatever is currently at that S3 key every time the
+                # pipeline runs -- PollForSourceChanges just controls
+                # whether IT can also start a run on every new zip upload.
+                PollForSourceChanges: "false"
               OutputArtifacts: [{ Name: DeployTemplates }]
               RunOrder: 1
         - Name: Deploy
@@ -302,10 +314,10 @@ Outputs:
     Value: !Ref CodeDeployApplication
   CodeDeployDeploymentGroupName:
     Value: !Ref CodeDeployDeploymentGroup
-  GitHubConnectionArn:
-    Value: !Ref GitHubConnection
+  ArtifactBucketName:
+    Value: !Ref ArtifactBucket
     Description: >-
-      PENDING after creation -- complete the handshake once in the AWS
-      Console (Developer Tools > Settings > Connections) to authorize the
-      GitHub App (for the photo-uploader-app repo) before the pipeline's
-      GitHub source action will work.
+      Give this to the app repo's build workflow (as the
+      PIPELINE_ARTIFACT_BUCKET variable) -- it uploads its zipped
+      ecs/appspec.yaml + ecs/taskdef.json here for the DeployTemplatesSource
+      action to pick up.

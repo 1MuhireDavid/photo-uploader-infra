@@ -21,9 +21,9 @@ photo-uploader-infra/
 │   ├── root.yaml               # master template -- what Git sync deploys
 │   ├── deployment-file.yaml     # Git sync's parameters/tags file
 │   └── modules/
-│       ├── 01-network.yaml         # VPC, public+private subnets x2 AZ, NAT
+│       ├── 01-network.yaml         # VPC, public+private subnets x2 AZ (no NAT)
 │       ├── 02-security.yaml         # least-privilege security groups
-│       ├── 03-backing-services.yaml  # ECR repo + interface/gateway VPC endpoints
+│       ├── 03-vpc-endpoints.yaml      # interface/gateway VPC endpoints
 │       ├── 04-storage-cdn.yaml        # private S3 photos bucket + CloudFront (OAC)
 │       ├── 05-database.yaml            # RDS PostgreSQL (photo metadata)
 │       ├── 06-alb-ecs.yaml              # ALB, ECS cluster/service, autoscaling
@@ -34,14 +34,17 @@ photo-uploader-infra/
 
 ## Architecture
 
-- **Network:** 1 VPC, 2 AZs, 2 public + 2 private subnets, 1 NAT Gateway
-  (parameterized to 2 for full HA egress).
+- **Network:** 1 VPC, 2 AZs, 2 public + 2 private subnets. **No NAT
+  Gateway** — the private subnets have no internet route at all.
 - **Compute:** ECS Fargate tasks in **private** subnets only, no public
   IPs. Pulled images, shipped logs, STS calls, and the RDS-managed DB
   credential fetch all travel over **interface VPC endpoints** (`ecr.api`,
   `ecr.dkr`, `logs`, `sts`, `secretsmanager`) plus a free **S3 gateway
-  endpoint** (ECR layer storage + the app's own photo uploads) — steady-
-  state traffic never needs the NAT Gateway.
+  endpoint** (ECR layer storage + the app's own photo uploads) — every
+  call an ECS task makes goes over a VPC endpoint, so there's nothing left
+  that needs a NAT Gateway. (This does mean the very first deployment
+  needs a real image already sitting in ECR, not a public placeholder —
+  see "Full setup order" below.)
 - **Exposure:** a public **ALB** is the only internet-facing compute
   resource; security groups form a strict chain (Internet → ALB SG → ECS
   task SG → {VPC endpoint SG on 443, RDS SG on 5432}), least privilege at
@@ -63,10 +66,22 @@ photo-uploader-infra/
 - **Deploy:** ECS service uses `DeploymentController: CODE_DEPLOY`.
   EventBridge watches ECR for a `PUSH` of the `:latest` tag, starts
   CodePipeline, which hands the new image + `appspec.yaml`/`taskdef.json`
-  (pulled from the **app repo**) to CodeDeploy for a blue/green traffic
-  shift. The pipeline's GitHub source action has `DetectChanges: false`
-  deliberately, so it never self-triggers on unrelated app-repo commits
-  (e.g. a README edit) — EventBridge is the sole trigger.
+  (zipped and uploaded to S3 by the **app repo's** build workflow) to
+  CodeDeploy for a blue/green traffic shift. The pipeline's S3 source
+  action has `PollForSourceChanges: false` deliberately, so it never
+  self-triggers on every zip upload — EventBridge is the sole trigger.
+- **Pre-production validation:** the ALB has a second listener
+  (`TestListenerPort`, default `8081`) alongside the prod one (`80`).
+  CodeDeploy points it at the new "green" task set as soon as it's
+  healthy, **before** any prod traffic shifts, then **pauses the
+  deployment** (`DeploymentReadyOption: STOP_DEPLOYMENT`) for up to
+  `DeploymentReadyWaitMinutes` (default 30). During that pause,
+  `AlbEndpoint` (root stack output) still serves the old "blue" version
+  while `AlbTestEndpoint` serves the new one — check it, then run
+  `aws deploy continue-deployment` (or the console's "Continue
+  deployment" button) to promote it to prod, or do nothing and let it
+  time out and roll back automatically. See "Validating a deployment"
+  below.
 - **IaC delivery:** CloudFormation **Git sync** deploys `cfn/root.yaml`
   straight from this repo on every push to `main`; nested stack templates
   are hosted in S3 (bucket created by a one-time bootstrap stack) since
@@ -81,23 +96,35 @@ photo-uploader-infra/
 | System | Direction | Auth mechanism |
 |---|---|---|
 | This repo's `package-templates.yml` | GitHub → AWS | **OIDC** federated role, scoped to this repo + workflow file |
-| `photo-uploader-app`'s `build-and-push.yml` | GitHub → AWS | **OIDC** federated role, scoped to *that* repo + workflow file |
+| `photo-uploader-app`'s `build-and-push.yml` | GitHub → AWS | **OIDC** federated role, scoped to *that* repo + workflow file (also used to upload the deploy-templates zip to S3 — see below) |
 | CloudFormation Git sync | AWS → this repo (AWS reads this repo to deploy it) | AWS's native **CodeConnections** (GitHub App install) |
-| CodePipeline's GitHub source action | AWS → `photo-uploader-app` (AWS reads that repo for `appspec.yaml`/`taskdef.json`) | The **same** CodeConnections connection, authorized against the app repo |
 
-Both are secretless/keyless from GitHub's side; only the first two are
-literally "OIDC" in the IAM sense, since OIDC federation only makes sense
-for the direction where GitHub Actions is the caller.
+All three are secretless/keyless from GitHub's side; only the first two
+are literally "OIDC" in the IAM sense, since OIDC federation only makes
+sense for the direction where GitHub Actions is the caller. Getting
+`appspec.yaml`/`taskdef.json` from the app repo into the pipeline used to
+need a *second* CodeConnections connection too (a `CodeStarSourceConnection`
+source action reading the app repo directly) — that's gone now: the app
+repo's build workflow zips those two files and uploads them to S3 (via
+its existing OIDC role) once it's done pushing the image, and the
+pipeline's second source action just reads that S3 object. One less
+connection to authorize by hand.
 
 ## One-time bootstrap
 
 `bootstrap/00-bootstrap.yaml` creates the S3 templates bucket, the
 `token.actions.githubusercontent.com` OIDC provider (a **singleton per
 AWS account** — leave `CreateOidcProvider` at `false` if any other lab in
-this account already created one), and two scoped OIDC roles — one per
-repo. Deployed once, manually, **not** through Git sync, because an OIDC
-provider must never be at risk of being deleted/recreated by a routine
-app or infra change.
+this account already created one), two scoped OIDC roles — one per repo
+— and the app's **ECR repository**. Deployed once, manually, **not**
+through Git sync, because an OIDC provider must never be at risk of being
+deleted/recreated by a routine app or infra change.
+
+The ECR repository lives here rather than in a Git-sync-owned nested
+stack specifically so a real image can be pushed to it **before** the
+root stack ever creates the ECS service — this VPC has no NAT Gateway, so
+there's no way to fall back on pulling a public placeholder image over
+the internet the way a NAT-backed setup could.
 
 **Deploy it via the AWS Console** (no CLI needed):
 
@@ -117,7 +144,7 @@ app or infra change.
 
    | Parameter | Value |
    |---|---|
-   | ProjectName | `photo-uploader` (default) |
+   | ProjectName | `photo-uploader` (default) -- **must exactly match** the `ProjectName` parameter in `cfn/deployment-file.yaml` (also `photo-uploader` by default). The root stack finds this stack's S3 bucket and ECR repo via CloudFormation Exports named after `ProjectName`; a mismatch here fails the root stack's creation with a "No export named ... found" error rather than silently using the wrong resources. |
    | GitHubOrg | `1MuhireDavid` |
    | InfraRepoName | `photo-uploader-infra` (default) |
    | AppRepoName | `photo-uploader-app` (default) |
@@ -133,16 +160,33 @@ app or infra change.
    bottom and check **"I acknowledge that AWS CloudFormation might create
    IAM resources with custom names."** This is required because the
    template creates two named IAM roles. Click **Submit**.
-8. Wait for the stack status to reach **CREATE_COMPLETE** (S3 + IAM only,
-   typically under two minutes).
+8. Wait for the stack status to reach **CREATE_COMPLETE** (S3 + IAM + an
+   empty ECR repo, typically under two minutes).
 9. Click into the stack and open its **Outputs** tab. You'll need three
-   values from here: `TemplatesBucketName`, `InfraPackagingRoleArn`, and
-   `AppEcrPushRoleArn`.
+   values from here to hand-copy into GitHub secrets (steps 2–3 below):
+   `TemplatesBucketName`, `InfraPackagingRoleArn`, and `AppEcrPushRoleArn`.
+   The remaining three outputs — `EcrRepositoryUri`, `EcrRepositoryName`,
+   `EcrRepositoryArn` — are each published as a CloudFormation Export
+   (named `<ProjectName>-ecr-repository-uri`, etc., same pattern as
+   `TemplatesBucketName`'s own `<ProjectName>-templates-bucket` export)
+   and picked up automatically by `cfn/root.yaml` via `Fn::ImportValue`.
+   There's nothing to copy into `cfn/deployment-file.yaml` for those
+   three; just don't change `ProjectName` between this stack and that
+   file.
 
 ## Full setup order
 
+There's no NAT Gateway in this VPC, so the ECS task's very first CREATE
+can't fall back on pulling a public placeholder image over the internet —
+a real image has to already be sitting in ECR **before** the root stack
+is created. That's why the app repo gets its secrets and pushes its first
+image (steps 3–4) *before* Git sync ever runs (step 7).
+
 1. **Deploy the bootstrap stack via the Console** — see above. Note the
-   three Output values.
+   three Output values you'll hand-copy (`TemplatesBucketName`,
+   `InfraPackagingRoleArn`, `AppEcrPushRoleArn`) — the other three
+   (`EcrRepositoryUri`/`Name`/`Arn`) are consumed automatically later, no
+   copying needed.
 2. **Add this repo's secrets** (GitHub's UI): go to
    `github.com/1MuhireDavid/photo-uploader-infra` → **Settings → Secrets
    and variables → Actions**, and add:
@@ -162,19 +206,32 @@ app or infra change.
    | `AWS_ECR_PUSH_ROLE_ARN` | the `AppEcrPushRoleArn` output |
    | `ECR_REPOSITORY` | `photo-uploader-app` |
 
-   And `AWS_REGION` under **Variables**, same value as above.
-4. **Fill in `cfn/deployment-file.yaml`** in this repo — replace
-   `TemplatesBucketName`'s placeholder with the real output value, and set
-   `AppOwnerName` to your full name. `GitHubOrg`/`AppRepoName` are already
-   filled in. Commit the change.
-5. **Push this repo to GitHub on `main`.** `.github/workflows/
+   And `AWS_REGION` under **Variables**, same value as above. Leave
+   `PIPELINE_ARTIFACT_BUCKET` unset for now — it doesn't exist until
+   step 8.
+4. **Push the app now, before the root stack exists** — see
+   `photo-uploader-app`'s README for filling in `ecs/taskdef.json` and
+   triggering the build workflow. This pushes a real `:latest` image to
+   the ECR repo the bootstrap stack just created. The workflow's later
+   step that uploads the deploy-templates zip will fail here since
+   `PIPELINE_ARTIFACT_BUCKET` isn't set yet — that's expected; the image
+   push (which runs first) is all this step needs, and you'll re-trigger
+   the workflow in step 8 once that bucket exists.
+5. **Fill in `cfn/deployment-file.yaml`** in this repo — set
+   `AppOwnerName` to your full name, and double-check `ProjectName`
+   still matches what you deployed the bootstrap stack with (step 5
+   above). Nothing else here needs the bootstrap stack's outputs —
+   `TemplatesBucketName` and the `EcrRepository*` values are resolved by
+   `cfn/root.yaml` itself via `Fn::ImportValue`, not read from this file.
+   Commit the change.
+6. **Push this repo to GitHub on `main`.** `.github/workflows/
    package-templates.yml` runs automatically and uploads the nested
    templates to S3. It does **not** touch the repo itself — open the run's
    job summary (or its "Print next manual step" log line) for the short
    SHA it uploaded under, then paste that into `cfn/deployment-file.yaml`'s
    `TemplatesVersion` parameter yourself and commit. That commit is what
-   Git sync (once turned on, step 6) picks up to deploy.
-6. **Turn on Git sync**, entirely in the CloudFormation console:
+   Git sync (once turned on, step 7) picks up to deploy.
+7. **Turn on Git sync**, entirely in the CloudFormation console:
    - **CloudFormation → Stacks → Create stack → With Git sync**.
    - Connect to `1MuhireDavid/photo-uploader-infra`, branch `main`.
    - Deployment file path: `cfn/deployment-file.yaml`.
@@ -182,22 +239,58 @@ app or infra change.
      stack execution role, granting `CAPABILITY_NAMED_IAM`.
    - Git sync opens a pull request confirming the deployment file schema
      — merge it to kick off the first deploy.
-   - Watch the stack's **Events** tab; the full nested-stack deploy (VPC,
-     NAT, S3/CloudFront, RDS, ALB, ECS, pipeline) typically takes
-     15–20 minutes (RDS is the slowest single resource).
-7. **Authorize the GitHub connection** — in the CloudFormation console,
-   go to **Developer Tools → Settings → Connections**, find the
-   connection created by `07-cicd-pipeline.yaml` (status **Pending**),
-   click it, and **Update pending connection** to complete the one-click
-   GitHub App authorization against `photo-uploader-app`. The pipeline's
-   GitHub source action won't run until this is **Available**.
-8. **Push the app** — see `photo-uploader-app`'s README for filling in
-   `ecs/taskdef.json` and triggering the first real image build. That
-   push builds/pushes the image, EventBridge fires, CodePipeline runs,
-   CodeDeploy shifts traffic blue → green.
-9. **Open the app** — CloudFormation console → root stack
-   (`photo-uploader`) → **Outputs** tab → `AlbEndpoint`. The
-   `CloudFrontDomainName` output is where uploaded images are served from.
+   - Watch the stack's **Events** tab; the full nested-stack deploy
+     (VPC, VPC endpoints, S3/CloudFront, RDS, ALB, ECS, pipeline)
+     typically takes 15–20 minutes (RDS is the slowest single resource).
+     The ECS task pulls the `:latest` image you pushed in step 4.
+8. **Give the app repo its `PIPELINE_ARTIFACT_BUCKET` variable, then
+   re-push** — once the root stack finishes deploying, open its
+   **Outputs** tab and copy `ArtifactBucketName`. Add it as a **Variable**
+   (not secret — it's just a bucket name) on `photo-uploader-app`'s
+   **Settings → Secrets and variables → Actions**. Then re-run the build
+   workflow (push a commit, or re-run the last one) so it both pushes a
+   fresh image AND successfully uploads the deploy-templates zip this
+   time. That upload, plus the new `:latest` push, is what EventBridge
+   picks up to start CodePipeline, which hands off to CodeDeploy for the
+   first real blue/green traffic shift.
+9. **Validate and continue the deployment** — this (and every later)
+   deployment pauses partway through; see "Validating a deployment"
+   below. Do this now, or the deployment will simply sit paused until
+   `DeploymentReadyWaitMinutes` elapses and it rolls back.
+10. **Open the app** — CloudFormation console → root stack
+    (`photo-uploader`) → **Outputs** tab → `AlbEndpoint`. The
+    `CloudFrontDomainName` output is where uploaded images are served
+    from.
+
+## Validating a deployment
+
+Every deployment — the first one from step 9 above, and every later push
+to the app repo — pauses partway through rather than completing on its
+own:
+
+1. **Kick it off** as usual: push to `photo-uploader-app` (or, for a
+   repeat of an existing image, re-run its build workflow). EventBridge →
+   CodePipeline → CodeDeploy starts a new blue/green deployment.
+2. **Wait for the pause.** Watch it in **CodeDeploy console → Applications
+   → `photo-uploader-app` → Deployment groups → `photo-uploader-dg`** —
+   its status becomes stuck at a step waiting for traffic rerouting once
+   the new ("green") task set is healthy. At this point `AlbEndpoint`
+   still serves the previous version; `AlbTestEndpoint` (root stack
+   output, `http://<alb-dns>:8081` by default) serves the new one.
+3. **Check `AlbTestEndpoint`.** This is the whole point of the pause —
+   confirm the new version actually works before real users see it.
+4. **Promote it**, once you're satisfied:
+   ```
+   aws deploy continue-deployment \
+     --deployment-id <id-from-the-CodeDeploy-console> \
+     --deployment-wait-type READY_WAIT
+   ```
+   or click **Continue deployment** on the deployment's page in the
+   CodeDeploy console. `AlbEndpoint` now serves the new version too, and
+   the old task set terminates after `TerminationWaitTimeInMinutes` (10).
+5. **Or do nothing.** After `DeploymentReadyWaitMinutes` (default 30)
+   CodeDeploy stops the deployment and rolls back on its own — real
+   traffic on `AlbEndpoint` never saw the untested version either way.
 
 ## Deliverables checklist
 
@@ -205,7 +298,7 @@ app or infra change.
 |---|---|
 | Infra CloudFormation | this repo |
 | App code + Dockerfile + build/deploy files | [`photo-uploader-app`](https://github.com/1MuhireDavid/photo-uploader-app) |
-| ALB endpoint | CloudFormation output `AlbEndpoint` on the root stack, after step 8 |
+| ALB endpoint | CloudFormation output `AlbEndpoint` on the root stack, after step 7 |
 | Architecture diagram (draw.io) | `diagram/architecture.drawio` |
 
 ## Rubric → implementation map
@@ -213,7 +306,7 @@ app or infra change.
 | Rubric item | Implementation |
 |---|---|
 | Multi-AZ VPC, correct subnets | `cfn/modules/01-network.yaml` |
-| Private ECS + VPC endpoints + public ALB | `03-backing-services.yaml`, `06-alb-ecs.yaml` |
+| Private ECS + VPC endpoints, no NAT + public ALB | `03-vpc-endpoints.yaml`, `01-network.yaml`, `06-alb-ecs.yaml` |
 | CloudFront + private S3 bucket restricted via OAC | `04-storage-cdn.yaml` |
 | RDS PostgreSQL, db.t3 family, private subnets | `05-database.yaml` |
 | Least-privilege security groups | `02-security.yaml` (strict SG-to-SG chain) |
@@ -222,23 +315,30 @@ app or infra change.
 | OIDC auth (no long-lived secrets) | Both workflows use `role-to-assume`; roles + `job_workflow_ref` scoping in `bootstrap/00-bootstrap.yaml` |
 | EventBridge triggers CodeDeploy on ECR push | `07-cicd-pipeline.yaml`: `EcrPushRule` |
 | App accessible via ALB | `AlbEndpoint` output |
-| ALB health checks pass | Health check path `/`, answered by both the bootstrap placeholder and the real app |
+| ALB health checks pass | Health check path `/`, answered by the app once its DB read succeeds |
 | CloudWatch Logs | `awslogs` driver → `/ecs/photo-uploader-app` log group |
 | Auto scaling 1–4 on CPU | `ScalableTarget` / `CpuScalingPolicy` in `06-alb-ecs.yaml` |
 | Blue/green deployment | `07-cicd-pipeline.yaml`: CodeDeploy `BLUE_GREEN` + `WITH_TRAFFIC_CONTROL`, two target groups |
+| Pre-production validation before traffic shift | `06-alb-ecs.yaml`: `TestListener`; `07-cicd-pipeline.yaml`: `TestTrafficRoute` + `DeploymentReadyOption: STOP_DEPLOYMENT` |
 
 ## Security & cost notes
 
 - Every security group is scoped to the single upstream SG that should
   reach it (Internet → ALB SG :80 → ECS task SG :container-port →
   {VPC endpoint SG :443, RDS SG :5432}) — no `0.0.0.0/0` ingress below the
-  ALB.
-- ECS tasks run in **private** subnets with `AssignPublicIp: DISABLED`;
-  all outbound calls that matter (ECR, CloudWatch Logs, STS, Secrets
-  Manager) go over interface VPC endpoints, and both ECR's image-layer
-  store and the app's own photo uploads go over a free S3 gateway
-  endpoint — NAT Gateway is present for other/edge-case internet egress
-  but ordinary steady-state traffic never touches it.
+  ALB. The ALB SG's second ingress rule, for `TestListenerPort` (the
+  pre-production validation listener), is the one exception worth calling
+  out: it's `0.0.0.0/0` by default (`TestListenerAllowedCidr`), same as
+  the prod listener, because this lab has no VPN/internal network to
+  restrict it to. It can briefly serve an unvalidated build mid-deployment
+  — restrict `TestListenerAllowedCidr` to your own IP/office CIDR outside
+  a lab setting.
+- ECS tasks run in **private** subnets with `AssignPublicIp: DISABLED`
+  and **no NAT Gateway anywhere in this VPC** — every outbound call the
+  task makes (ECR, CloudWatch Logs, STS, Secrets Manager) goes over
+  interface VPC endpoints, and both ECR's image-layer store and the app's
+  own photo uploads go over a free S3 gateway endpoint. The private route
+  tables carry no `0.0.0.0/0` route at all.
 - The photos S3 bucket blocks all public access; the only principal ever
   granted `s3:GetObject` is `cloudfront.amazonaws.com`, further scoped by
   `AWS:SourceArn` to this exact distribution.
@@ -246,10 +346,11 @@ app or infra change.
   5432 from the ECS task security group, and its master credential is
   entirely AWS-managed (no password in any template/parameter/secret you
   create yourself).
-- `SingleNatGateway=true` by default (1 NAT Gateway) to keep the lab
-  cheap; flip to `false` for fully-HA egress in a production setting.
-  `DbMultiAZ=false` by default for the same reason — the rubric requires
-  a multi-AZ *VPC*, not a multi-AZ database.
+- No NAT Gateway at all (removed entirely -- VPC endpoints cover every
+  call the private subnets need, so there was nothing left for it to do)
+  keeps the lab cheap AND removes an internet egress path outright.
+  `DbMultiAZ=false` by default for cost — the rubric requires a
+  multi-AZ *VPC*, not a multi-AZ database.
 - All S3 buckets: private, encrypted, versioned, deny-insecure-transport.
 - IAM roles are purpose-scoped (e.g. the ECR-push role can only push to
   its own single ECR repository ARN; the ECS task role can only

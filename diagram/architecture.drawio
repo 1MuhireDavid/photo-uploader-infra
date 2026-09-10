@@ -72,11 +72,8 @@
         <mxCell id="n8" value="Internet Gateway" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#8C4FFF;fontColor=#FFFFFF;strokeColor=none;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="450" y="190" width="150" height="35" as="geometry" />
         </mxCell>
-        <mxCell id="n9" value="NAT Gateway" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#8C4FFF;fontColor=#FFFFFF;strokeColor=none;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="450" y="270" width="140" height="40" as="geometry" />
-        </mxCell>
         <mxCell id="n10" value="Application Load Balancer&#10;(public, :80)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ED7100;fontColor=#FFFFFF;strokeColor=none;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="450" y="325" width="220" height="45" as="geometry" />
+          <mxGeometry x="450" y="270" width="220" height="45" as="geometry" />
         </mxCell>
 
         <!-- ===================== VPC: private subnet (ECS + endpoints + RDS) ===================== -->
@@ -196,7 +193,7 @@
         <mxCell id="e20" value="StartPipelineExecution" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;" edge="1" parent="1" source="n21" target="n22">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e21" value="source: appspec.yaml + taskdef.json&#10;(DetectChanges: false)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;fontSize=10;" edge="1" parent="1" source="n3" target="n22">
+        <mxCell id="e21" value="source: appspec.yaml + taskdef.json zip, via S3&#10;(PollForSourceChanges: false)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;fontSize=10;" edge="1" parent="1" source="n3" target="n22">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="e22" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="n22" target="n23">

@@ -24,12 +24,14 @@
 template-file-path: cfn/root.yaml
 
 parameters:
+  # Must match the ProjectName the bootstrap stack (bootstrap/00-bootstrap.yaml)
+  # was deployed with -- root.yaml resolves TemplatesBucketName and the
+  # EcrRepository* values from bootstrap's CloudFormation Exports (named
+  # "${ProjectName}-templates-bucket" etc.) automatically, via
+  # Fn::ImportValue. There's nothing to copy-paste for those here anymore;
+  # a ProjectName mismatch between the two stacks is the only way this
+  # wiring breaks (fails stack creation with "No export named ... found").
   ProjectName: photo-uploader
-
-  # Filled in from the bootstrap stack's outputs (bootstrap/00-bootstrap.yaml)
-  # -- copy the TemplatesBucketName output value here once, after the
-  # bootstrap stack is created.
-  TemplatesBucketName: photo-uploader-cfn-templates-047719661196-us-east-1
 
   # Set this MANUALLY after each run of .github/workflows/package-templates.yml
   # -- copy the short SHA it prints (job summary + logs) in here and commit,
@@ -42,7 +44,6 @@ parameters:
   PublicSubnet2CIDR: 10.30.1.0/24
   PrivateSubnet1CIDR: 10.30.10.0/24
   PrivateSubnet2CIDR: 10.30.11.0/24
-  SingleNatGateway: "true"
 
   CloudFrontPriceClass: PriceClass_200
 
@@ -54,7 +55,21 @@ parameters:
   DbPort: 5432
 
   ContainerPort: 8080
-  InitialImageTag: bootstrap
+  # ALB listener CodeDeploy points at the "green" candidate for
+  # pre-production validation before prod traffic (port 80) shifts to it.
+  # 0.0.0.0/0 here matches the lab's prod listener -- restrict
+  # TestListenerAllowedCidr to your own IP/office CIDR in a real
+  # environment, since this listener can briefly serve an unvalidated build.
+  TestListenerPort: 8081
+  TestListenerAllowedCidr: 0.0.0.0/0
+  # Minutes CodeDeploy waits, after pointing TestListenerPort at a new
+  # deployment, for `aws deploy continue-deployment` before stopping and
+  # rolling back on its own. See 07-cicd-pipeline.yaml.
+  DeploymentReadyWaitMinutes: 30
+  # Must already exist in ECR (pushed by the app repo's build workflow)
+  # BEFORE this stack is created -- there's no NAT Gateway here to fall
+  # back on a public placeholder image.
+  InitialImageTag: latest
   TaskCpu: "256"
   TaskMemory: "512"
   MinTasks: 1
@@ -65,9 +80,6 @@ parameters:
   AppOwnerName: "DAVID MUHIRE"
   LabName: "Photo Uploader Lab"
 
-  GitHubOrg: 1MuhireDavid
-  AppRepoName: photo-uploader-app
-  AppRepoBranch: main
   DeployedImageTag: latest
 
 tags:
