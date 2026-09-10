@@ -32,6 +32,159 @@ photo-uploader-infra/
 └── .github/workflows/package-templates.yml
 ```
 
+## Architecture diagram
+
+Renders natively on GitHub -- no external tool needed. `diagram/architecture.drawio`
+remains the fully-detailed, hand-editable version (see "Viewing / editing the
+diagram" below); this Mermaid version is the at-a-glance summary embedded here.
+
+```mermaid
+flowchart TD
+    User(["End User"])
+
+    subgraph GH["GitHub"]
+        direction TB
+        RepoInfra["Infra Repo"]
+        RepoApp["App Repo"]
+        WfInfra["Package Templates"]
+        WfApp["Build & Push"]
+        RepoInfra --> WfInfra
+        RepoApp --> WfApp
+    end
+
+    subgraph IAM["Account IAM"]
+        direction TB
+        OIDC["GitHub OIDC Provider"]
+        RoleInfra["InfraPackagingRole"]
+        RoleApp["AppEcrPushRole"]
+    end
+
+    subgraph CICD["CI/CD & Regional Services"]
+        direction TB
+        TemplatesS3["S3 Templates"]
+        GitSync["CFN Git Sync"]
+        ECR["ECR Repo"]
+        EB["EventBridge Rule"]
+        CP["CodePipeline"]
+        ArtifactS3["S3 Artifacts"]
+        CD["CodeDeploy"]
+    end
+
+    subgraph VPC["VPC 10.30.0.0/16"]
+        subgraph PUB["Public Subnets"]
+            ALB["ALB :80 / :8081"]
+        end
+        subgraph AZA["AZ-A Private"]
+            TGBlue["TG Blue (live)"]
+            Blue["Fargate Blue"]
+        end
+        subgraph AZB["AZ-B Private"]
+            TGGreen["TG Green (standby)"]
+            Green["Fargate Green"]
+            RDS[("RDS PostgreSQL")]
+        end
+        subgraph EPS["VPC Endpoints"]
+            EP["ecr / logs / sts / secrets / s3"]
+        end
+    end
+
+    subgraph EDGE["Edge / CDN"]
+        direction TB
+        CF["CloudFront"]
+        S3Photos[("S3 Photos")]
+    end
+
+    %% ---- Path A: IaC / infra pipeline ----
+    RepoInfra -->|A1| GitSync
+    WfInfra -->|A2 assume role| RoleInfra
+    RoleInfra -->|A3| TemplatesS3
+    GitSync -->|A4| TemplatesS3
+    TemplatesS3 ==>|A5 deploy| VPC
+
+    %% ---- Path B: app CI/CD & deployment ----
+    WfApp -->|B1 assume role| RoleApp
+    RoleApp -->|B2 push| ECR
+    ECR -->|B3 image push| EB
+    EB -->|B4| CP
+    CP -->|B5| ArtifactS3
+    CP ==>|B6| CD
+    CD -->|B7 new task set| Green
+    CD -.->|B8 test :8081| TGGreen
+    CD ==>|B9 promote| ALB
+
+    %% ---- OIDC trust (dashed) ----
+    OIDC -.-> RoleInfra
+    OIDC -.-> RoleApp
+
+    %% ---- Runtime traffic ----
+    User --> ALB
+    User --> CF
+    ALB --> TGBlue --> Blue
+    ALB -.-> TGGreen
+    Blue --> RDS
+    Green -.-> RDS
+    Blue --> EP
+    Green -.-> EP
+    CF --> S3Photos
+    Blue --> S3Photos
+
+    linkStyle 0,2,3,4,5,6 stroke:#7d3ac1,stroke-width:2px;
+    linkStyle 1,7,8,9,10,11,12,13,15 stroke:#d05c17,stroke-width:2px;
+    linkStyle 14,22,24,26 stroke:#28a745,stroke-width:2px;
+    linkStyle 16,17 stroke:#c7131f,stroke-width:2px;
+    linkStyle 18,19,20,21,23,27 stroke:#0d6efd,stroke-width:2px;
+    linkStyle 25,28 stroke:#607d8b,stroke-width:2px;
+
+    classDef live fill:#cfe2ff,stroke:#0d6efd,stroke-width:2px,color:#052c65;
+    classDef standby fill:#d4edda,stroke:#28a745,stroke-width:2px,stroke-dasharray:4 3,color:#14532d;
+    classDef endpoint fill:#eceff1,stroke:#607d8b,color:#263238;
+    classDef iac fill:#e6d9f7,stroke:#7d3ac1,color:#3b1a63;
+    classDef cicd fill:#ffe8d6,stroke:#d05c17,color:#5c2a00;
+    classDef security fill:#fbdada,stroke:#c7131f,color:#5c0a0f;
+
+    class Blue,TGBlue live;
+    class Green,TGGreen standby;
+    class EP endpoint;
+    class RepoInfra,WfInfra,GitSync,TemplatesS3 iac;
+    class ECR,EB,CP,CD,ArtifactS3 cicd;
+    class OIDC,RoleInfra,RoleApp security;
+```
+
+### Legend
+
+**Color coding**
+
+| Color | Meaning |
+|---|---|
+| 🟦 Blue | Live / prod traffic path (BLUE task set) |
+| 🟩 Green (dashed) | Standby / deploy-candidate path (GREEN task set) |
+| ⬜ Gray | VPC interface/gateway endpoints |
+| 🟪 Purple | Infra repo / IaC delivery |
+| 🟧 Orange | CI/CD (ECR, EventBridge, CodePipeline, CodeDeploy) |
+| 🟥 Red | IAM / OIDC trust |
+
+**Path A -- IaC / infra pipeline** (push to `photo-uploader-infra`, `main`):
+A1 push triggers Git Sync -- A2 `package-templates.yml` assumes `InfraPackagingRole`
+via OIDC -- A3 uploads nested CFN templates to S3 -- A4 Git Sync reads them --
+A5 deploys/updates the VPC, security groups, endpoints, ALB, ECS, RDS, and CDN.
+
+**Path B -- App CI/CD & deployment** (push to `photo-uploader-app`, `main`):
+B1 `build-and-push.yml` assumes `AppEcrPushRole` via OIDC -- B2 pushes `:sha`
+and `:latest` image to ECR -- B3 ECR `PUSH` event fires EventBridge -- B4
+starts CodePipeline -- B5 pipeline also reads `deploy-templates.zip`
+(appspec/taskdef) from the S3 artifact bucket -- B6 hands both to CodeDeploy --
+B7 CodeDeploy registers a new task definition and launches the GREEN task set
+-- B8 points the ALB's `:8081` test listener at GREEN for pre-production
+validation (pauses here up to 30 min for `aws deploy continue-deployment`) --
+B9 on promote, shifts the ALB's prod `:80` listener from BLUE to GREEN and
+terminates the old BLUE task set 10 minutes later.
+
+**Not shown on the diagram** (kept out of the visual per the no-NAT-Gateway,
+least-privilege design -- see the bullets below for full detail): exact
+security-group chain, target-tracking auto scaling (1-4 tasks, 60% CPU),
+CloudWatch Logs retention, ECR tag/lifecycle policy, RDS Multi-AZ setting,
+and CloudFront cache/price-class settings.
+
 ## Architecture
 
 - **Network:** 1 VPC, 2 AZs, 2 public + 2 private subnets. **No NAT
@@ -312,7 +465,7 @@ own:
 | Infra CloudFormation | this repo |
 | App code + Dockerfile + build/deploy files | [`photo-uploader-app`](https://github.com/1MuhireDavid/photo-uploader-app) |
 | ALB endpoint | CloudFormation output `AlbEndpoint` on the root stack, after step 7 |
-| Architecture diagram (draw.io) | `diagram/architecture.drawio` |
+| Architecture diagram | Mermaid, this README's "Architecture diagram" section; detailed draw.io version at `diagram/architecture.drawio` |
 
 ## Rubric → implementation map
 
@@ -374,9 +527,14 @@ own:
 
 ## Viewing / editing the diagram
 
-`diagram/architecture.drawio` opens directly in
-[diagrams.net](https://app.diagrams.net) (File → Open From → Device), the
-[draw.io desktop app](https://github.com/jgraph/drawio-desktop), or the
-[Draw.io Integration VS Code extension](https://marketplace.visualstudio.com/items?itemName=hediet.vscode-drawio).
+The **Mermaid** diagram under "Architecture diagram" above renders wherever
+GitHub-flavored Markdown does (GitHub's own file view, most IDEs, `mermaid-cli`)
+with no extra tooling -- edit it in place in this README.
+
+`diagram/architecture.drawio` is the fully-detailed, hand-editable companion
+(every VPC endpoint, IAM role, and config parameter individually placed). It
+opens directly in [diagrams.net](https://app.diagrams.net) (File → Open From →
+Device), the [draw.io desktop app](https://github.com/jgraph/drawio-desktop), or
+the [Draw.io Integration VS Code extension](https://marketplace.visualstudio.com/items?itemName=hediet.vscode-drawio).
 To export a PNG/SVG for a slide or doc, open it in any of those and use
 **File → Export as**.
