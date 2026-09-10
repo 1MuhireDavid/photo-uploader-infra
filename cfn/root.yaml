@@ -71,14 +71,6 @@ Parameters:
     Default: "Photo Uploader Lab"
 
   # --- CI/CD wiring ---
-  GitHubOrg:
-    Type: String
-  AppRepoName:
-    Type: String
-    Default: photo-uploader-app
-  AppRepoBranch:
-    Type: String
-    Default: main
   DeployedImageTag:
     Type: String
     Default: latest
@@ -204,9 +196,6 @@ Resources:
         ProdListenerArn: !GetAtt AlbEcsStack.Outputs.ProdListenerArn
         BlueTargetGroupName: !GetAtt AlbEcsStack.Outputs.BlueTargetGroupName
         GreenTargetGroupName: !GetAtt AlbEcsStack.Outputs.GreenTargetGroupName
-        GitHubOrg: !Ref GitHubOrg
-        AppRepoName: !Ref AppRepoName
-        AppRepoBranch: !Ref AppRepoBranch
         DeployedImageTag: !Ref DeployedImageTag
       Tags:
         - Key: Project
@@ -224,9 +213,11 @@ Outputs:
     Value: !GetAtt AlbEcsStack.Outputs.ServiceName
   PipelineName:
     Value: !GetAtt CicdPipelineStack.Outputs.PipelineName
-  GitHubConnectionArn:
-    Description: Authorize this connection once in the console (see README) before first pipeline run
-    Value: !GetAtt CicdPipelineStack.Outputs.GitHubConnectionArn
+  ArtifactBucketName:
+    Description: >-
+      Give this to the app repo's build workflow as the
+      PIPELINE_ARTIFACT_BUCKET variable (see README)
+    Value: !GetAtt CicdPipelineStack.Outputs.ArtifactBucketName
   VpcId:
     Value: !GetAtt NetworkStack.Outputs.VpcId
   PhotosBucketName:

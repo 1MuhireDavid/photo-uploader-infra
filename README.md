@@ -63,10 +63,10 @@ photo-uploader-infra/
 - **Deploy:** ECS service uses `DeploymentController: CODE_DEPLOY`.
   EventBridge watches ECR for a `PUSH` of the `:latest` tag, starts
   CodePipeline, which hands the new image + `appspec.yaml`/`taskdef.json`
-  (pulled from the **app repo**) to CodeDeploy for a blue/green traffic
-  shift. The pipeline's GitHub source action has `DetectChanges: false`
-  deliberately, so it never self-triggers on unrelated app-repo commits
-  (e.g. a README edit) — EventBridge is the sole trigger.
+  (zipped and uploaded to S3 by the **app repo's** build workflow) to
+  CodeDeploy for a blue/green traffic shift. The pipeline's S3 source
+  action has `PollForSourceChanges: false` deliberately, so it never
+  self-triggers on every zip upload — EventBridge is the sole trigger.
 - **IaC delivery:** CloudFormation **Git sync** deploys `cfn/root.yaml`
   straight from this repo on every push to `main`; nested stack templates
   are hosted in S3 (bucket created by a one-time bootstrap stack) since
@@ -81,13 +81,19 @@ photo-uploader-infra/
 | System | Direction | Auth mechanism |
 |---|---|---|
 | This repo's `package-templates.yml` | GitHub → AWS | **OIDC** federated role, scoped to this repo + workflow file |
-| `photo-uploader-app`'s `build-and-push.yml` | GitHub → AWS | **OIDC** federated role, scoped to *that* repo + workflow file |
+| `photo-uploader-app`'s `build-and-push.yml` | GitHub → AWS | **OIDC** federated role, scoped to *that* repo + workflow file (also used to upload the deploy-templates zip to S3 — see below) |
 | CloudFormation Git sync | AWS → this repo (AWS reads this repo to deploy it) | AWS's native **CodeConnections** (GitHub App install) |
-| CodePipeline's GitHub source action | AWS → `photo-uploader-app` (AWS reads that repo for `appspec.yaml`/`taskdef.json`) | The **same** CodeConnections connection, authorized against the app repo |
 
-Both are secretless/keyless from GitHub's side; only the first two are
-literally "OIDC" in the IAM sense, since OIDC federation only makes sense
-for the direction where GitHub Actions is the caller.
+All three are secretless/keyless from GitHub's side; only the first two
+are literally "OIDC" in the IAM sense, since OIDC federation only makes
+sense for the direction where GitHub Actions is the caller. Getting
+`appspec.yaml`/`taskdef.json` from the app repo into the pipeline used to
+need a *second* CodeConnections connection too (a `CodeStarSourceConnection`
+source action reading the app repo directly) — that's gone now: the app
+repo's build workflow zips those two files and uploads them to S3 (via
+its existing OIDC role) once it's done pushing the image, and the
+pipeline's second source action just reads that S3 object. One less
+connection to authorize by hand.
 
 ## One-time bootstrap
 
@@ -165,8 +171,7 @@ app or infra change.
    And `AWS_REGION` under **Variables**, same value as above.
 4. **Fill in `cfn/deployment-file.yaml`** in this repo — replace
    `TemplatesBucketName`'s placeholder with the real output value, and set
-   `AppOwnerName` to your full name. `GitHubOrg`/`AppRepoName` are already
-   filled in. Commit the change.
+   `AppOwnerName` to your full name. Commit the change.
 5. **Push this repo to GitHub on `main`.** `.github/workflows/
    package-templates.yml` runs automatically and uploads the nested
    templates to S3. It does **not** touch the repo itself — open the run's
@@ -185,16 +190,17 @@ app or infra change.
    - Watch the stack's **Events** tab; the full nested-stack deploy (VPC,
      NAT, S3/CloudFront, RDS, ALB, ECS, pipeline) typically takes
      15–20 minutes (RDS is the slowest single resource).
-7. **Authorize the GitHub connection** — in the CloudFormation console,
-   go to **Developer Tools → Settings → Connections**, find the
-   connection created by `07-cicd-pipeline.yaml` (status **Pending**),
-   click it, and **Update pending connection** to complete the one-click
-   GitHub App authorization against `photo-uploader-app`. The pipeline's
-   GitHub source action won't run until this is **Available**.
+7. **Give the app repo its `PIPELINE_ARTIFACT_BUCKET` variable** — once
+   the root stack finishes deploying, open its **Outputs** tab and copy
+   `ArtifactBucketName`. Add it as a **Variable** (not secret — it's just
+   a bucket name) on `photo-uploader-app`'s **Settings → Secrets and
+   variables → Actions**. The build workflow uploads its deploy-templates
+   zip there for the pipeline's S3 source action to pick up.
 8. **Push the app** — see `photo-uploader-app`'s README for filling in
    `ecs/taskdef.json` and triggering the first real image build. That
-   push builds/pushes the image, EventBridge fires, CodePipeline runs,
-   CodeDeploy shifts traffic blue → green.
+   push builds/pushes the image, uploads the deploy-templates zip,
+   EventBridge fires, CodePipeline runs, CodeDeploy shifts traffic
+   blue → green.
 9. **Open the app** — CloudFormation console → root stack
    (`photo-uploader`) → **Outputs** tab → `AlbEndpoint`. The
    `CloudFrontDomainName` output is where uploaded images are served from.

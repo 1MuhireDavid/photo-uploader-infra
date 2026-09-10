@@ -196,7 +196,7 @@
         <mxCell id="e20" value="StartPipelineExecution" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;fontSize=10;" edge="1" parent="1" source="n21" target="n22">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e21" value="source: appspec.yaml + taskdef.json&#10;(DetectChanges: false)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;fontSize=10;" edge="1" parent="1" source="n3" target="n22">
+        <mxCell id="e21" value="source: appspec.yaml + taskdef.json zip, via S3&#10;(PollForSourceChanges: false)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;fontSize=10;" edge="1" parent="1" source="n3" target="n22">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="e22" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="n22" target="n23">

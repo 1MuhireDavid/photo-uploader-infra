@@ -243,6 +243,18 @@ Resources:
                   - "ecr:DescribeImages"
                   - "ecr:DescribeRepositories"
                 Resource: !Sub "arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${ProjectName}-app"
+        - PolicyName: UploadDeployTemplates
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # The pipeline's ArtifactBucket lives in the 07-cicd-pipeline
+              # nested stack (created later, via Git sync), not here -- but
+              # its name is deterministic (see that template), so this role
+              # can be scoped to it without a cross-stack reference.
+              - Sid: PutDeployTemplatesZip
+                Effect: Allow
+                Action: "s3:PutObject"
+                Resource: !Sub "arn:aws:s3:::${ProjectName}-pipeline-${AWS::AccountId}-${AWS::Region}/deploy-templates/*"
       Tags:
         - Key: Project
           Value: !Ref ProjectName

@@ -65,9 +65,6 @@ parameters:
   AppOwnerName: "DAVID MUHIRE"
   LabName: "Photo Uploader Lab"
 
-  GitHubOrg: 1MuhireDavid
-  AppRepoName: photo-uploader-app
-  AppRepoBranch: main
   DeployedImageTag: latest
 
 tags:
