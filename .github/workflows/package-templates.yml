@@ -16,6 +16,13 @@ on:
     paths:
       - "cfn/modules/**"
       - "cfn/root.yaml"
+  # Lets you re-package main's CURRENT templates on demand (Actions tab ->
+  # this workflow -> "Run workflow"), without needing a throwaway commit
+  # under cfn/modules or cfn/root.yaml just to retrigger the push filter
+  # above -- e.g. after fixing something AWS-side (an IAM trust policy, an
+  # emptied/recreated templates bucket) that left the last successfully
+  # packaged TemplatesVersion pointing at objects that no longer exist.
+  workflow_dispatch: {}
 
 permissions:
   id-token: write   # required for OIDC -> AWS
