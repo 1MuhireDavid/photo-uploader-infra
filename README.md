@@ -164,9 +164,12 @@ flowchart TD
 | 🟥 Red | IAM / OIDC trust |
 
 **Path A -- IaC / infra pipeline** (push to `photo-uploader-infra`, `main`):
-A1 push triggers Git Sync -- A2 `package-templates.yml` assumes `InfraPackagingRole`
-via OIDC -- A3 uploads nested CFN templates to S3 -- A4 Git Sync reads them --
-A5 deploys/updates the VPC, security groups, endpoints, ALB, ECS, RDS, and CDN.
+A1 push triggers `package-templates.yml`, which assumes `InfraPackagingRole`
+via OIDC -- A2 hashes each nested template and uploads any whose content
+actually changed to S3 -- A3 commits the changed hashes into
+`deployment-file.yaml` -- A4 that commit is what Git Sync notices -- A5
+Git Sync reads the (changed) templates from S3 and deploys/updates the
+VPC, security groups, endpoints, ALB, ECS, RDS, and CDN.
 
 **Path B -- App CI/CD & deployment** (push to `photo-uploader-app`, `main`):
 B1 `build-and-push.yml` assumes `AppEcrPushRole` via OIDC -- B2 pushes `:sha`
@@ -391,12 +394,15 @@ image (steps 3–4) *before* Git sync ever runs (step 7).
    `cfn/root.yaml` itself via `Fn::ImportValue`, not read from this file.
    Commit the change.
 6. **Push this repo to GitHub on `main`.** `.github/workflows/
-   package-templates.yml` runs automatically and uploads the nested
-   templates to S3. It does **not** touch the repo itself — open the run's
-   job summary (or its "Print next manual step" log line) for the short
-   SHA it uploaded under, then paste that into `cfn/deployment-file.yaml`'s
-   `TemplatesVersion` parameter yourself and commit. That commit is what
-   Git sync (once turned on, step 7) picks up to deploy.
+   package-templates.yml` runs automatically: it hashes each file under
+   `cfn/nested-templates/`, uploads any that aren't already in S3 under
+   that hash, and commits the resulting `<Module>TemplateHash` values into
+   `cfn/deployment-file.yaml` **itself** — fully automatic, nothing to
+   paste. On a fresh clone the checked-in hashes already match the
+   checked-in templates, so this run typically just uploads the 7 objects
+   and pushes no further commit (nothing changed). Wait for this run to
+   finish (Actions tab) before step 7, so Git sync's first deploy has
+   real, already-uploaded templates to fetch.
 7. **Turn on Git sync**, entirely in the CloudFormation console:
    - **CloudFormation → Stacks → Create stack → With Git sync**.
    - Connect to `1MuhireDavid/photo-uploader-infra`, branch `main`.

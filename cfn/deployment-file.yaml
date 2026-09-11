@@ -33,11 +33,19 @@ parameters:
   # wiring breaks (fails stack creation with "No export named ... found").
   ProjectName: photo-uploader
 
-  # Set this MANUALLY after each run of .github/workflows/package-templates.yml
-  # -- copy the short SHA it prints (job summary + logs) in here and commit,
-  # which is the change Git sync picks up to redeploy against the templates
-  # that run just uploaded to S3.
-  TemplatesVersion: 82b42d0427df
+  # AUTO-MANAGED by .github/workflows/package-templates.yml -- do not
+  # hand-edit. Each is a content hash (git blob hash, first 12 hex chars)
+  # of the matching file under cfn/nested-templates/; the workflow
+  # recomputes all 7 on every push that touches those files (or root.yaml)
+  # and commits back here ONLY the ones that actually changed, which is
+  # what makes Git sync pick up that specific nested stack's new template.
+  NetworkTemplateHash: 15069d971ef9
+  SecurityTemplateHash: 7bc20ef257c9
+  VpcEndpointsTemplateHash: 76ff852ae33d
+  StorageCdnTemplateHash: 61db1a87fa24
+  DatabaseTemplateHash: e5841b6d7612
+  AlbEcsTemplateHash: 1344050856ac
+  CicdPipelineTemplateHash: fe61689ce904
 
   VpcCIDR: 10.30.0.0/16
   PublicSubnet1CIDR: 10.30.0.0/24

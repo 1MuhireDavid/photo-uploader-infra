@@ -10,11 +10,21 @@ AWSTemplateFormatVersion: "2010-09-09"
 #   05-database.yaml               RDS PostgreSQL (photo metadata)
 #   06-alb-ecs.yaml                  Public ALB, ECS cluster/service, auto scaling
 #   07-cicd-pipeline.yaml             CodePipeline + CodeDeploy blue/green + EventBridge
-# Nested templates are pulled from S3 (see TemplatesVersion below, and the
-# TemplatesBucket import inside each nested stack's TemplateURL) rather
-# than embedded here, per the lab's "host nested templates in S3"
-# requirement, and so Git sync (which deploys this single file as-is,
-# with no local packaging step) can still resolve child templates.
+# Nested templates are pulled from S3 (see the <Module>TemplateHash
+# parameters below, and the TemplatesBucket import inside each nested
+# stack's TemplateURL) rather than embedded here, per the lab's "host
+# nested templates in S3" requirement, and so Git sync (which deploys this
+# single file as-is, with no local packaging step) can still resolve child
+# templates.
+#
+# Each nested stack has its OWN hash parameter (not one shared version)
+# because CloudFormation only re-fetches/re-diffs a nested stack when its
+# TemplateURL string actually changes -- per-file content hashes mean an
+# unchanged module's TemplateURL stays byte-identical (no pointless
+# re-evaluation) while a changed one gets a new URL (forcing the update
+# CloudFormation would otherwise miss). .github/workflows/
+# package-templates.yml computes these hashes and commits them to
+# deployment-file.yaml automatically -- nothing to paste by hand.
 #
 # This template imports four values (the templates bucket name and the
 # three EcrRepository* values) from bootstrap/00-bootstrap.yaml via
@@ -41,12 +51,17 @@ Parameters:
     Type: String
     Default: photo-uploader
 
-  TemplatesVersion:
-    Type: String
-    Description: >
-      Git short-SHA the package-templates workflow stamped into the S3 key
-      prefix on last push. Bumping this parameter is what makes Git sync
-      pick up nested-template-only changes (see deployment-file.yaml).
+  # Each is a short content hash (git blob hash, first 12 hex chars) of the
+  # matching file under cfn/nested-templates/, auto-computed and committed
+  # to deployment-file.yaml by package-templates.yml -- see this file's
+  # top comment for why these are per-file rather than one shared version.
+  NetworkTemplateHash: { Type: String }
+  SecurityTemplateHash: { Type: String }
+  VpcEndpointsTemplateHash: { Type: String }
+  StorageCdnTemplateHash: { Type: String }
+  DatabaseTemplateHash: { Type: String }
+  AlbEcsTemplateHash: { Type: String }
+  CicdPipelineTemplateHash: { Type: String }
 
   # --- Networking ---
   VpcCIDR: { Type: String, Default: 10.30.0.0/16 }
@@ -122,7 +137,7 @@ Resources:
     Type: AWS::CloudFormation::Stack
     Properties:
       TemplateURL: !Sub
-        - "https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/templates/${TemplatesVersion}/01-network.yaml"
+        - "https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/templates/01-network-${NetworkTemplateHash}.yaml"
         - TemplatesBucket: !ImportValue
             Fn::Sub: "${ProjectName}-templates-bucket"
       Parameters:
@@ -140,7 +155,7 @@ Resources:
     Type: AWS::CloudFormation::Stack
     Properties:
       TemplateURL: !Sub
-        - "https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/templates/${TemplatesVersion}/02-security.yaml"
+        - "https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/templates/02-security-${SecurityTemplateHash}.yaml"
         - TemplatesBucket: !ImportValue
             Fn::Sub: "${ProjectName}-templates-bucket"
       Parameters:
@@ -162,7 +177,7 @@ Resources:
       # file) to avoid CloudFormation replacing this nested stack -- see
       # the comment at the top of 03-vpc-endpoints.yaml for why.
       TemplateURL: !Sub
-        - "https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/templates/${TemplatesVersion}/03-vpc-endpoints.yaml"
+        - "https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/templates/03-vpc-endpoints-${VpcEndpointsTemplateHash}.yaml"
         - TemplatesBucket: !ImportValue
             Fn::Sub: "${ProjectName}-templates-bucket"
       Parameters:
@@ -179,7 +194,7 @@ Resources:
     Type: AWS::CloudFormation::Stack
     Properties:
       TemplateURL: !Sub
-        - "https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/templates/${TemplatesVersion}/04-storage-cdn.yaml"
+        - "https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/templates/04-storage-cdn-${StorageCdnTemplateHash}.yaml"
         - TemplatesBucket: !ImportValue
             Fn::Sub: "${ProjectName}-templates-bucket"
       Parameters:
@@ -193,7 +208,7 @@ Resources:
     Type: AWS::CloudFormation::Stack
     Properties:
       TemplateURL: !Sub
-        - "https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/templates/${TemplatesVersion}/05-database.yaml"
+        - "https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/templates/05-database-${DatabaseTemplateHash}.yaml"
         - TemplatesBucket: !ImportValue
             Fn::Sub: "${ProjectName}-templates-bucket"
       Parameters:
@@ -214,7 +229,7 @@ Resources:
     Type: AWS::CloudFormation::Stack
     Properties:
       TemplateURL: !Sub
-        - "https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/templates/${TemplatesVersion}/06-alb-ecs.yaml"
+        - "https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/templates/06-alb-ecs-${AlbEcsTemplateHash}.yaml"
         - TemplatesBucket: !ImportValue
             Fn::Sub: "${ProjectName}-templates-bucket"
       Parameters:
@@ -252,7 +267,7 @@ Resources:
     Type: AWS::CloudFormation::Stack
     Properties:
       TemplateURL: !Sub
-        - "https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/templates/${TemplatesVersion}/07-cicd-pipeline.yaml"
+        - "https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/templates/07-cicd-pipeline-${CicdPipelineTemplateHash}.yaml"
         - TemplatesBucket: !ImportValue
             Fn::Sub: "${ProjectName}-templates-bucket"
       Parameters:

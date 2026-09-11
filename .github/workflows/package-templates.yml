@@ -1,31 +1,31 @@
 name: "Package nested templates to S3"
 
-# This workflow does NOT deploy anything itself, and does NOT touch
-# deployment-file.yaml. Its only job is to get nested-stack template
-# bodies into the S3 bucket that root.yaml's TemplateURL properties
-# point at, under a key prefixed with this push's short commit SHA.
+# Fully automated: for each file under cfn/nested-templates/, computes a
+# content hash (git blob hash, first 12 hex chars), uploads it to S3 as
+# templates/<file>-<hash>.yaml IF that exact object doesn't already exist
+# (i.e. only actually-changed files get uploaded), and commits the
+# resulting hashes into cfn/deployment-file.yaml -- but only the ones that
+# changed. That commit is what Git sync picks up to redeploy; there is no
+# manual step here.
 #
-# Git sync (configured manually in the CloudFormation console) is what
-# actually deploys. After this workflow finishes, copy the SHA it printed
-# into deployment-file.yaml's TemplatesVersion parameter and commit that
-# yourself -- that's the change Git sync picks up to redeploy against the
-# templates just uploaded here.
+# Per-file (not one shared version) because CloudFormation only
+# re-fetches/re-diffs a nested stack when its TemplateURL string actually
+# changes -- see cfn/root.yaml's top comment for the full reasoning.
 on:
   push:
     branches: [main]
     paths:
       - "cfn/nested-templates/**"
       - "cfn/root.yaml"
-  # Lets you re-package main's CURRENT templates on demand (Actions tab ->
-  # this workflow -> "Run workflow"), without needing a throwaway commit
-  # under cfn/nested-templates or cfn/root.yaml just to retrigger the push filter
-  # above -- e.g. after fixing something AWS-side (an IAM trust policy, an
-  # emptied/recreated templates bucket) that left the last successfully
-  # packaged TemplatesVersion pointing at objects that no longer exist.
+  # Lets you re-run this on demand (Actions tab -> this workflow -> "Run
+  # workflow") -- e.g. after fixing something AWS-side (an IAM trust
+  # policy, an emptied/recreated templates bucket) without needing a
+  # throwaway commit to hit the push filter above.
   workflow_dispatch: {}
 
 permissions:
   id-token: write   # required for OIDC -> AWS
+  contents: write    # required to commit hash updates back to deployment-file.yaml
 
 concurrency:
   group: package-templates
@@ -44,25 +44,63 @@ jobs:
           role-to-assume: ${{ secrets.AWS_INFRA_PACKAGING_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
-      - name: Compute template version (short SHA)
-        id: version
-        run: echo "sha=$(git rev-parse --short=12 HEAD)" >> "$GITHUB_OUTPUT"
-
-      - name: Upload nested templates to S3
+      # Maps each nested-templates file to the deployment-file.yaml
+      # parameter that carries its hash -- must match cfn/root.yaml's
+      # <Module>TemplateHash parameter names exactly.
+      - name: Hash, upload changed templates, and update deployment-file.yaml
+        id: sync
         run: |
-          aws s3 cp "cfn/nested-templates/" \
-            "s3://${{ vars.AWS_TEMPLATES_BUCKET }}/templates/${{ steps.version.outputs.sha }}/" \
-            --recursive --exclude "*" --include "*.yaml"
+          set -euo pipefail
+          declare -A PARAM_FOR=(
+            [01-network]=NetworkTemplateHash
+            [02-security]=SecurityTemplateHash
+            [03-vpc-endpoints]=VpcEndpointsTemplateHash
+            [04-storage-cdn]=StorageCdnTemplateHash
+            [05-database]=DatabaseTemplateHash
+            [06-alb-ecs]=AlbEcsTemplateHash
+            [07-cicd-pipeline]=CicdPipelineTemplateHash
+          )
+          BUCKET="${{ vars.AWS_TEMPLATES_BUCKET }}"
+          CHANGED=0
+          for path in cfn/nested-templates/*.yaml; do
+            base="$(basename "$path" .yaml)"
+            param="${PARAM_FOR[$base]:-}"
+            if [ -z "$param" ]; then
+              echo "::error::no deployment-file.yaml parameter mapped for $path -- add it to PARAM_FOR"
+              exit 1
+            fi
+            hash="$(git hash-object "$path" | cut -c1-12)"
+            key="templates/${base}-${hash}.yaml"
 
-      - name: Print next manual step
+            if aws s3api head-object --bucket "$BUCKET" --key "$key" >/dev/null 2>&1; then
+              echo "unchanged: $path (hash $hash already in S3, skipping upload)"
+            else
+              echo "changed:   $path -> s3://$BUCKET/$key"
+              aws s3 cp "$path" "s3://$BUCKET/$key"
+              CHANGED=1
+            fi
+
+            sed -i "s/^  ${param}:.*/  ${param}: ${hash}/" cfn/deployment-file.yaml
+          done
+          echo "changed=$CHANGED" >> "$GITHUB_OUTPUT"
+
+      - name: Commit updated template hashes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add cfn/deployment-file.yaml
+          if git diff --cached --quiet; then
+            echo "No hash changes to commit (deployment-file.yaml already up to date)."
+          else
+            git commit -m "chore: sync nested template hashes [skip ci]"
+            git push
+          fi
+
+      - name: Summary
         run: |
           {
-            echo "### Templates uploaded"
+            echo "### Template sync complete"
             echo ""
-            echo "Set this in \`cfn/deployment-file.yaml\` and commit to trigger Git sync:"
-            echo ""
-            echo '```'
-            echo "  TemplatesVersion: ${{ steps.version.outputs.sha }}"
-            echo '```'
+            echo "Git sync will pick up whatever changed in \`cfn/deployment-file.yaml\`"
+            echo "from this run's commit (if any) automatically -- no manual step."
           } >> "$GITHUB_STEP_SUMMARY"
-          echo "TemplatesVersion: ${{ steps.version.outputs.sha }}"
