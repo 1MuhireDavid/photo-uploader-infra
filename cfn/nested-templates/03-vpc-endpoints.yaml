@@ -21,7 +21,8 @@ Resources:
       VpcEndpointType: Interface
       ServiceName: !Sub "com.amazonaws.${AWS::Region}.ecr.api"
       SubnetIds: !Ref PrivateSubnetIds
-      SecurityGroupIds: [!Ref VpcEndpointSecurityGroupId]
+      SecurityGroupIds:
+        - !Ref VpcEndpointSecurityGroupId
       PrivateDnsEnabled: true
       Tags:
         - Key: Name
@@ -34,7 +35,8 @@ Resources:
       VpcEndpointType: Interface
       ServiceName: !Sub "com.amazonaws.${AWS::Region}.ecr.dkr"
       SubnetIds: !Ref PrivateSubnetIds
-      SecurityGroupIds: [!Ref VpcEndpointSecurityGroupId]
+      SecurityGroupIds:
+        - !Ref VpcEndpointSecurityGroupId
       PrivateDnsEnabled: true
       Tags:
         - Key: Name
@@ -47,7 +49,8 @@ Resources:
       VpcEndpointType: Interface
       ServiceName: !Sub "com.amazonaws.${AWS::Region}.logs"
       SubnetIds: !Ref PrivateSubnetIds
-      SecurityGroupIds: [!Ref VpcEndpointSecurityGroupId]
+      SecurityGroupIds:
+        - !Ref VpcEndpointSecurityGroupId
       PrivateDnsEnabled: true
       Tags:
         - Key: Name
@@ -60,7 +63,8 @@ Resources:
       VpcEndpointType: Interface
       ServiceName: !Sub "com.amazonaws.${AWS::Region}.sts"
       SubnetIds: !Ref PrivateSubnetIds
-      SecurityGroupIds: [!Ref VpcEndpointSecurityGroupId]
+      SecurityGroupIds:
+        - !Ref VpcEndpointSecurityGroupId
       PrivateDnsEnabled: true
       Tags:
         - Key: Name
@@ -73,7 +77,8 @@ Resources:
       VpcEndpointType: Interface
       ServiceName: !Sub "com.amazonaws.${AWS::Region}.secretsmanager"
       SubnetIds: !Ref PrivateSubnetIds
-      SecurityGroupIds: [!Ref VpcEndpointSecurityGroupId]
+      SecurityGroupIds:
+        - !Ref VpcEndpointSecurityGroupId
       PrivateDnsEnabled: true
       Tags:
         - Key: Name

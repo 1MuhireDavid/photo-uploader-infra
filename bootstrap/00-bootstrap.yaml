@@ -31,10 +31,14 @@ Parameters:
   CreateOidcProvider:
     Type: String
     Default: "false"
-    AllowedValues: ["true", "false"]
+    AllowedValues:
+      - "true"
+      - "false"
 
 Conditions:
-  ShouldCreateOidcProvider: !Equals [!Ref CreateOidcProvider, "true"]
+  ShouldCreateOidcProvider: !Equals
+    - !Ref CreateOidcProvider
+    - "true"
 
 Resources:
 
@@ -126,11 +130,14 @@ Resources:
             Statement:
               - Sid: ListBucket
                 Effect: Allow
-                Action: ["s3:ListBucket"]
+                Action:
+                  - "s3:ListBucket"
                 Resource: !GetAtt TemplatesBucket.Arn
               - Sid: ReadWriteTemplateObjects
                 Effect: Allow
-                Action: ["s3:PutObject", "s3:GetObject"]
+                Action:
+                  - "s3:PutObject"
+                  - "s3:GetObject"
                 Resource: !Sub "${TemplatesBucket.Arn}/templates/*"
       Tags:
         - Key: Project

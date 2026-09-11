@@ -22,7 +22,9 @@ Parameters:
   DbMultiAZ:
     Type: String
     Default: "false"
-    AllowedValues: ["true", "false"]
+    AllowedValues:
+      - "true"
+      - "false"
   DbPort:
     Type: Number
     Default: 5432
@@ -53,7 +55,8 @@ Resources:
       ManageMasterUserPassword: true
       Port: !Ref DbPort
       DBSubnetGroupName: !Ref DbSubnetGroup
-      VPCSecurityGroups: [!Ref RdsSecurityGroupId]
+      VPCSecurityGroups:
+        - !Ref RdsSecurityGroupId
       MultiAZ: !Ref DbMultiAZ
       PubliclyAccessible: false
       BackupRetentionPeriod: 1

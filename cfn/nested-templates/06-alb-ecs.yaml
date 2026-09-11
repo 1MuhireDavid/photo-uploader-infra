@@ -27,11 +27,17 @@ Parameters:
   TaskCpu:
     Type: String
     Default: "256"
-    AllowedValues: ["256", "512", "1024"]
+    AllowedValues:
+      - "256"
+      - "512"
+      - "1024"
   TaskMemory:
     Type: String
     Default: "512"
-    AllowedValues: ["512", "1024", "2048"]
+    AllowedValues:
+      - "512"
+      - "1024"
+      - "2048"
   MinTasks:
     Type: Number
     Default: 1
@@ -73,7 +79,8 @@ Resources:
       Scheme: internet-facing
       Type: application
       IpAddressType: ipv4
-      SecurityGroups: [!Ref AlbSecurityGroupId]
+      SecurityGroups:
+        - !Ref AlbSecurityGroupId
       Subnets: !Ref PublicSubnetIds
       Tags:
         - Key: Name
@@ -158,7 +165,8 @@ Resources:
         Version: "2012-10-17"
         Statement:
           - Effect: Allow
-            Principal: { Service: ecs-tasks.amazonaws.com }
+            Principal:
+              Service: ecs-tasks.amazonaws.com
             Action: "sts:AssumeRole"
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
@@ -194,7 +202,8 @@ Resources:
         Version: "2012-10-17"
         Statement:
           - Effect: Allow
-            Principal: { Service: ecs-tasks.amazonaws.com }
+            Principal:
+              Service: ecs-tasks.amazonaws.com
             Action: "sts:AssumeRole"
       Policies:
         - PolicyName: PhotosBucketReadWrite
@@ -214,7 +223,8 @@ Resources:
       Cpu: !Ref TaskCpu
       Memory: !Ref TaskMemory
       NetworkMode: awsvpc
-      RequiresCompatibilities: [FARGATE]
+      RequiresCompatibilities:
+        - FARGATE
       ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
       TaskRoleArn: !GetAtt TaskRole.Arn
       ContainerDefinitions:
@@ -267,7 +277,8 @@ Resources:
         AwsvpcConfiguration:
           AssignPublicIp: DISABLED
           Subnets: !Ref PrivateSubnetIds
-          SecurityGroups: [!Ref EcsTaskSecurityGroupId]
+          SecurityGroups:
+            - !Ref EcsTaskSecurityGroupId
       LoadBalancers:
         - ContainerName: !Sub "${ProjectName}-container"
           ContainerPort: !Ref ContainerPort

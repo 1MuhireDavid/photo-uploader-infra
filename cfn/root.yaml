@@ -5,33 +5,70 @@ Parameters:
     Type: String
     Default: photo-uploader
 
-  NetworkTemplateHash: { Type: String }
-  SecurityTemplateHash: { Type: String }
-  VpcEndpointsTemplateHash: { Type: String }
-  StorageCdnTemplateHash: { Type: String }
-  DatabaseTemplateHash: { Type: String }
-  AlbEcsTemplateHash: { Type: String }
-  CicdPipelineTemplateHash: { Type: String }
+  NetworkTemplateHash:
+    Type: String
+  SecurityTemplateHash:
+    Type: String
+  VpcEndpointsTemplateHash:
+    Type: String
+  StorageCdnTemplateHash:
+    Type: String
+  DatabaseTemplateHash:
+    Type: String
+  AlbEcsTemplateHash:
+    Type: String
+  CicdPipelineTemplateHash:
+    Type: String
 
-  VpcCIDR: { Type: String, Default: 10.30.0.0/16 }
-  PublicSubnet1CIDR: { Type: String, Default: 10.30.0.0/24 }
-  PublicSubnet2CIDR: { Type: String, Default: 10.30.1.0/24 }
-  PrivateSubnet1CIDR: { Type: String, Default: 10.30.10.0/24 }
-  PrivateSubnet2CIDR: { Type: String, Default: 10.30.11.0/24 }
+  VpcCIDR:
+    Type: String
+    Default: 10.30.0.0/16
+  PublicSubnet1CIDR:
+    Type: String
+    Default: 10.30.0.0/24
+  PublicSubnet2CIDR:
+    Type: String
+    Default: 10.30.1.0/24
+  PrivateSubnet1CIDR:
+    Type: String
+    Default: 10.30.10.0/24
+  PrivateSubnet2CIDR:
+    Type: String
+    Default: 10.30.11.0/24
 
   CloudFrontPriceClass:
     Type: String
     Default: PriceClass_200
-    AllowedValues: [PriceClass_100, PriceClass_200, PriceClass_All]
+    AllowedValues:
+      - PriceClass_100
+      - PriceClass_200
+      - PriceClass_All
 
-  DbInstanceClass: { Type: String, Default: db.t3.micro }
-  DbAllocatedStorage: { Type: Number, Default: 20 }
-  DbName: { Type: String, Default: photogallery }
-  DbMasterUsername: { Type: String, Default: photoapp }
-  DbMultiAZ: { Type: String, Default: "false", AllowedValues: ["true", "false"] }
-  DbPort: { Type: Number, Default: 5432 }
+  DbInstanceClass:
+    Type: String
+    Default: db.t3.micro
+  DbAllocatedStorage:
+    Type: Number
+    Default: 20
+  DbName:
+    Type: String
+    Default: photogallery
+  DbMasterUsername:
+    Type: String
+    Default: photoapp
+  DbMultiAZ:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+  DbPort:
+    Type: Number
+    Default: 5432
 
-  ContainerPort: { Type: Number, Default: 8080 }
+  ContainerPort:
+    Type: Number
+    Default: 8080
   TestListenerPort:
     Type: Number
     Default: 8081
@@ -44,12 +81,24 @@ Parameters:
   InitialImageTag:
     Type: String
     Default: latest
-  TaskCpu: { Type: String, Default: "256" }
-  TaskMemory: { Type: String, Default: "512" }
-  MinTasks: { Type: Number, Default: 1 }
-  DesiredTasks: { Type: Number, Default: 1 }
-  MaxTasks: { Type: Number, Default: 4 }
-  CpuTargetPercent: { Type: Number, Default: 60 }
+  TaskCpu:
+    Type: String
+    Default: "256"
+  TaskMemory:
+    Type: String
+    Default: "512"
+  MinTasks:
+    Type: Number
+    Default: 1
+  DesiredTasks:
+    Type: Number
+    Default: 1
+  MaxTasks:
+    Type: Number
+    Default: 4
+  CpuTargetPercent:
+    Type: Number
+    Default: 60
   AppOwnerName:
     Type: String
   LabName:

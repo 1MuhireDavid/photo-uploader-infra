@@ -6,7 +6,10 @@ Parameters:
   CloudFrontPriceClass:
     Type: String
     Default: PriceClass_200
-    AllowedValues: [PriceClass_100, PriceClass_200, PriceClass_All]
+    AllowedValues:
+      - PriceClass_100
+      - PriceClass_200
+      - PriceClass_All
 
 Resources:
 
@@ -18,7 +21,8 @@ Resources:
         Status: Enabled
       BucketEncryption:
         ServerSideEncryptionConfiguration:
-          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
         BlockPublicPolicy: true
@@ -87,8 +91,12 @@ Resources:
         DefaultCacheBehavior:
           TargetOriginId: PhotosS3Origin
           ViewerProtocolPolicy: redirect-to-https
-          AllowedMethods: [GET, HEAD]
-          CachedMethods: [GET, HEAD]
+          AllowedMethods:
+            - GET
+            - HEAD
+          CachedMethods:
+            - GET
+            - HEAD
           Compress: true
           CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
       Tags:

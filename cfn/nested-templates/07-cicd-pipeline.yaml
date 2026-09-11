@@ -42,7 +42,8 @@ Resources:
         Status: Enabled
       BucketEncryption:
         ServerSideEncryptionConfiguration:
-          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
         BlockPublicPolicy: true
@@ -62,7 +63,8 @@ Resources:
         Version: "2012-10-17"
         Statement:
           - Effect: Allow
-            Principal: { Service: codedeploy.amazonaws.com }
+            Principal:
+              Service: codedeploy.amazonaws.com
             Action: "sts:AssumeRole"
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/AWSCodeDeployRoleForECS
@@ -96,9 +98,11 @@ Resources:
       LoadBalancerInfo:
         TargetGroupPairInfoList:
           - ProdTrafficRoute:
-              ListenerArns: [!Ref ProdListenerArn]
+              ListenerArns:
+                - !Ref ProdListenerArn
             TestTrafficRoute:
-              ListenerArns: [!Ref TestListenerArn]
+              ListenerArns:
+                - !Ref TestListenerArn
             TargetGroups:
               - Name: !Ref BlueTargetGroupName
               - Name: !Ref GreenTargetGroupName
@@ -111,7 +115,8 @@ Resources:
         Version: "2012-10-17"
         Statement:
           - Effect: Allow
-            Principal: { Service: codepipeline.amazonaws.com }
+            Principal:
+              Service: codepipeline.amazonaws.com
             Action: "sts:AssumeRole"
       Policies:
         - PolicyName: PipelinePermissions
@@ -184,7 +189,8 @@ Resources:
               Configuration:
                 RepositoryName: !Ref EcrRepositoryName
                 ImageTag: !Ref DeployedImageTag
-              OutputArtifacts: [{ Name: ImageDetail }]
+              OutputArtifacts:
+                - Name: ImageDetail
               RunOrder: 1
             - Name: DeployTemplatesSource
               ActionTypeId:
@@ -196,7 +202,8 @@ Resources:
                 S3Bucket: !Ref ArtifactBucket
                 S3ObjectKey: !Ref DeployTemplatesS3Key
                 PollForSourceChanges: "false"
-              OutputArtifacts: [{ Name: DeployTemplates }]
+              OutputArtifacts:
+                - Name: DeployTemplates
               RunOrder: 1
         - Name: Deploy
           Actions:
@@ -207,8 +214,8 @@ Resources:
                 Provider: CodeDeployToECS
                 Version: "1"
               InputArtifacts:
-                - { Name: ImageDetail }
-                - { Name: DeployTemplates }
+                - Name: ImageDetail
+                - Name: DeployTemplates
               Configuration:
                 ApplicationName: !Ref CodeDeployApplication
                 DeploymentGroupName: !Ref CodeDeployDeploymentGroup
@@ -228,7 +235,8 @@ Resources:
         Version: "2012-10-17"
         Statement:
           - Effect: Allow
-            Principal: { Service: events.amazonaws.com }
+            Principal:
+              Service: events.amazonaws.com
             Action: "sts:AssumeRole"
       Policies:
         - PolicyName: StartPipeline
@@ -245,13 +253,19 @@ Resources:
       Name: !Sub "${ProjectName}-ecr-push-rule"
       Description: !Sub "Starts ${ProjectName}-pipeline whenever a new '${DeployedImageTag}' image is pushed to ECR"
       EventPattern:
-        source: ["aws.ecr"]
-        detail-type: ["ECR Image Action"]
+        source:
+          - aws.ecr
+        detail-type:
+          - ECR Image Action
         detail:
-          action-type: ["PUSH"]
-          result: ["SUCCESS"]
-          repository-name: [!Ref EcrRepositoryName]
-          image-tag: [!Ref DeployedImageTag]
+          action-type:
+            - PUSH
+          result:
+            - SUCCESS
+          repository-name:
+            - !Ref EcrRepositoryName
+          image-tag:
+            - !Ref DeployedImageTag
       Targets:
         - Id: TriggerCodePipeline
           Arn: !Sub "arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${Pipeline}"
