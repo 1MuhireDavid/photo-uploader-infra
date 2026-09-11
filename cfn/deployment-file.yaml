@@ -37,7 +37,7 @@ parameters:
   # -- copy the short SHA it prints (job summary + logs) in here and commit,
   # which is the change Git sync picks up to redeploy against the templates
   # that run just uploaded to S3.
-  TemplatesVersion: 14b21b5be80e
+  TemplatesVersion: 82b42d0427df
 
   VpcCIDR: 10.30.0.0/16
   PublicSubnet1CIDR: 10.30.0.0/24
