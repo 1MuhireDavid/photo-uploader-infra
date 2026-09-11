@@ -20,7 +20,7 @@ photo-uploader-infra/
 ├── cfn/
 │   ├── root.yaml               # master template -- what Git sync deploys
 │   ├── deployment-file.yaml     # Git sync's parameters/tags file
-│   └── modules/
+│   └── nested-templates/
 │       ├── 01-network.yaml         # VPC, public+private subnets x2 AZ (no NAT)
 │       ├── 02-security.yaml         # least-privilege security groups
 │       ├── 03-vpc-endpoints.yaml      # interface/gateway VPC endpoints
@@ -471,7 +471,7 @@ own:
 
 | Rubric item | Implementation |
 |---|---|
-| Multi-AZ VPC, correct subnets | `cfn/modules/01-network.yaml` |
+| Multi-AZ VPC, correct subnets | `cfn/nested-templates/01-network.yaml` |
 | Private ECS + VPC endpoints, no NAT + public ALB | `03-vpc-endpoints.yaml`, `01-network.yaml`, `06-alb-ecs.yaml` |
 | CloudFront + private S3 bucket restricted via OAC | `04-storage-cdn.yaml` |
 | RDS PostgreSQL, db.t3 family, private subnets | `05-database.yaml` |
