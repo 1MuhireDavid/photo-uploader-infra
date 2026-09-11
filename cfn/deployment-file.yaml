@@ -39,7 +39,7 @@ parameters:
   StorageCdnTemplateHash: 61db1a87fa24
   DatabaseTemplateHash: e5841b6d7612
   AlbEcsTemplateHash: 1344050856ac
-  CicdPipelineTemplateHash: ae0c147a2a51
+  CicdPipelineTemplateHash: f3cf51a6420f
 
   VpcCIDR: 10.30.0.0/16
   PublicSubnet1CIDR: 10.30.0.0/24
