@@ -172,15 +172,17 @@ Git Sync reads the (changed) templates from S3 and deploys/updates the
 VPC, security groups, endpoints, ALB, ECS, RDS, and CDN.
 
 **Path B -- App CI/CD & deployment** (push to `photo-uploader-app`, `main`):
-B1 `build-and-push.yml` assumes `AppEcrPushRole` via OIDC -- B2 pushes `:sha`
-and `:latest` image to ECR -- B3 ECR `PUSH` event fires EventBridge -- B4
-starts CodePipeline -- B5 pipeline also reads `deploy-templates.zip`
-(appspec/taskdef) from the S3 artifact bucket -- B6 hands both to CodeDeploy --
-B7 CodeDeploy registers a new task definition and launches the GREEN task set
--- B8 points the ALB's `:8081` test listener at GREEN for pre-production
-validation (pauses here up to 30 min for `aws deploy continue-deployment`) --
-B9 on promote, shifts the ALB's prod `:80` listener from BLUE to GREEN and
-terminates the old BLUE task set 10 minutes later.
+B1 `build-and-push.yml` assumes `AppEcrPushRole` via OIDC -- B2 zips and
+uploads `deploy-templates.zip` (appspec/taskdef) to the S3 artifact bucket
+-- B3 builds and pushes the `:latest` image to ECR (deliberately after B2 --
+see that step's own comment) -- B4 ECR `PUSH` event fires EventBridge -- B5
+starts CodePipeline -- B6 pipeline reads both the image and the S3 zip from
+B2 -- B7 hands both to CodeDeploy -- B8 CodeDeploy registers a new task
+definition and launches the GREEN task set -- B9 points the ALB's `:8081`
+test listener at GREEN for pre-production validation (pauses here up to 30
+min for `aws deploy continue-deployment`) -- B10 on promote, shifts the
+ALB's prod `:80` listener from BLUE to GREEN and terminates the old BLUE
+task set 10 minutes later.
 
 **Not shown on the diagram** (kept out of the visual per the no-NAT-Gateway,
 least-privilege design -- see the bullets below for full detail): exact
