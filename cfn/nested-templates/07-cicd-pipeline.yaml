@@ -1,16 +1,4 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: >
-  Deployment pipeline: EventBridge detects a new image PUSH to ECR and
-  starts CodePipeline. CodePipeline pulls (1) the image reference from ECR
-  and (2) the appspec.yaml/taskdef.json deployment templates, zipped up
-  and uploaded to S3 by the separate photo-uploader-app repo's build
-  workflow, then hands both to CodeDeploy, which performs a blue/green
-  ECS deployment: green gets the new task set, TestListenerArn is pointed
-  at it for pre-production validation, the deployment then PAUSES
-  (DeploymentReadyOption: STOP_DEPLOYMENT below) until a human runs
-  `aws deploy continue-deployment` to shift real (prod) traffic from
-  "blue" to "green", or DeploymentReadyWaitMinutes elapses and CodeDeploy
-  automatically stops/rolls back instead.
 
 Parameters:
   ProjectName:
@@ -27,52 +15,28 @@ Parameters:
     Type: String
   TestListenerArn:
     Type: String
-    Description: >
-      ALB listener CodeDeploy points at the "green" target group for
-      pre-production validation before any prod traffic shifts (see
-      06-alb-ecs.yaml's TestListener).
   DeploymentReadyWaitMinutes:
     Type: Number
     Default: 30
-    Description: >
-      Minutes CodeDeploy waits, after routing TestListenerArn to the new
-      "green" task set, for a human to validate it and run
-      `aws deploy continue-deployment` (or click Continue deployment in
-      the console). If nobody does within this window, CodeDeploy stops
-      the deployment and rolls back -- prod traffic (ProdListenerArn)
-      never sees the untested version either way.
   BlueTargetGroupName:
     Type: String
   GreenTargetGroupName:
     Type: String
-  # Path, relative to the app repo root, that holds appspec.yaml and
-  # taskdef.json (used only for the object's internal zip layout / the
-  # CodeDeploy action's TemplatePath below).
   DeployTemplatesPath:
     Type: String
     Default: ecs
   DeployTemplatesS3Key:
     Type: String
     Default: deploy-templates/deploy-templates.zip
-    Description: >
-      Key, inside ArtifactBucket, that the app repo's build workflow
-      uploads its ecs/appspec.yaml + ecs/taskdef.json zip to. Must match
-      the key that workflow uploads to.
   DeployedImageTag:
     Type: String
     Default: latest
-    Description: >
-      Mutable tag the app build workflow always pushes last. This is the
-      tag EventBridge/CodePipeline pick up as "the newest version."
 
 Resources:
 
   ArtifactBucket:
     Type: AWS::S3::Bucket
     Properties:
-      # Kept short deliberately: ProjectName + this suffix + account id +
-      # the longest AWS region name must still fit under S3's 63-char
-      # bucket name limit.
       BucketName: !Sub "${ProjectName}-pipeline-${AWS::AccountId}-${AWS::Region}"
       VersioningConfiguration:
         Status: Enabled
@@ -90,7 +54,6 @@ Resources:
             Status: Enabled
             ExpirationInDays: 30
 
-  # ------------------------------ CodeDeploy ------------------------------
   CodeDeployServiceRole:
     Type: AWS::IAM::Role
     Properties:
@@ -121,16 +84,6 @@ Resources:
         DeploymentType: BLUE_GREEN
         DeploymentOption: WITH_TRAFFIC_CONTROL
       BlueGreenDeploymentConfiguration:
-        # STOP_DEPLOYMENT (not CONTINUE_DEPLOYMENT): once the green task
-        # set is healthy and TestTrafficRoute below is pointed at it,
-        # CodeDeploy pauses here rather than immediately shifting prod
-        # traffic -- that pause IS the pre-production validation gate.
-        # Resume with `aws deploy continue-deployment --deployment-id
-        # <id> --deployment-wait-type READY_WAIT` (or the console's
-        # "Continue deployment" button) once you've checked
-        # http://<alb-dns>:<TestListenerPort>. Left untouched for
-        # DeploymentReadyWaitMinutes, CodeDeploy stops the deployment
-        # and rolls back instead of guessing.
         DeploymentReadyOption:
           ActionOnTimeout: STOP_DEPLOYMENT
           WaitTimeInMinutes: !Ref DeploymentReadyWaitMinutes
@@ -150,7 +103,6 @@ Resources:
               - Name: !Ref BlueTargetGroupName
               - Name: !Ref GreenTargetGroupName
 
-  # ------------------------------ CodePipeline ------------------------------
   CodePipelineServiceRole:
     Type: AWS::IAM::Role
     Properties:
@@ -168,10 +120,6 @@ Resources:
             Statement:
               - Sid: ArtifactBucketAccess
                 Effect: Allow
-                # GetObjectVersion (not just GetObject) is required because
-                # ArtifactBucket has versioning enabled -- CodePipeline's S3
-                # source action reads a specific object version, which
-                # GetObject alone isn't sufficient to fetch.
                 Action:
                   - "s3:GetObject"
                   - "s3:GetObjectVersion"
@@ -189,10 +137,6 @@ Resources:
                 Resource: !Ref EcrRepositoryArn
               - Sid: EcrAuthToken
                 Effect: Allow
-                # ECR's source action needs this to resolve the image, and
-                # GetAuthorizationToken is account-level -- ECR doesn't
-                # support scoping it to a single repository ARN, so this
-                # has to be its own statement with Resource: "*".
                 Action: "ecr:GetAuthorizationToken"
                 Resource: "*"
               - Sid: CodeDeployTrigger
@@ -208,10 +152,6 @@ Resources:
               - Sid: RegisterTaskDefinitionForDeploy
                 Effect: Allow
                 Action:
-                  # RegisterTaskDefinition/DeregisterTaskDefinition don't
-                  # support resource-level restriction (the new revision
-                  # ARN doesn't exist yet at call time), hence Resource: "*"
-                  # rather than scoping to the family ARN.
                   - "ecs:RegisterTaskDefinition"
                   - "ecs:DescribeTaskDefinition"
                   - "ecs:DeregisterTaskDefinition"
@@ -255,11 +195,6 @@ Resources:
               Configuration:
                 S3Bucket: !Ref ArtifactBucket
                 S3ObjectKey: !Ref DeployTemplatesS3Key
-                # false, deliberately: the ECR PUSH EventBridge rule is the
-                # only intended trigger for this pipeline. This action still
-                # pulls whatever is currently at that S3 key every time the
-                # pipeline runs -- PollForSourceChanges just controls
-                # whether IT can also start a run on every new zip upload.
                 PollForSourceChanges: "false"
               OutputArtifacts: [{ Name: DeployTemplates }]
               RunOrder: 1
@@ -285,7 +220,6 @@ Resources:
                 Image1ContainerName: IMAGE1_NAME
               RunOrder: 1
 
-  # ------------------------- EventBridge trigger ---------------------------
   EventBridgeInvokePipelineRole:
     Type: AWS::IAM::Role
     Properties:
@@ -332,8 +266,3 @@ Outputs:
     Value: !Ref CodeDeployDeploymentGroup
   ArtifactBucketName:
     Value: !Ref ArtifactBucket
-    Description: >-
-      Give this to the app repo's build workflow (as the
-      PIPELINE_ARTIFACT_BUCKET variable) -- it uploads its zipped
-      ecs/appspec.yaml + ecs/taskdef.json here for the DeployTemplatesSource
-      action to pick up.

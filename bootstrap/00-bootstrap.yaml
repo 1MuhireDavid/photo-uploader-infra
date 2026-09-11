@@ -1,32 +1,12 @@
 AWSTemplateFormatVersion: "2010-09-09"
-# The ECR repository lives here (not in a Git-sync-owned nested stack)
-# specifically so a real image can be pushed to it BEFORE the root stack
-# ever creates the ECS service -- this VPC has no NAT Gateway, so the ECS
-# task's very first CREATE can't fall back on pulling a public placeholder
-# image over the internet the way a NAT-backed setup could. Its
-# TemplatesBucketName/EcrRepositoryUri/EcrRepositoryName/EcrRepositoryArn
-# outputs below are each a CloudFormation Export, consumed automatically
-# by cfn/root.yaml via Fn::ImportValue -- see root.yaml's own top comment.
-Description: >
-  Bootstrap stack for the Photo Uploader lab (two-repo edition). Deployed
-  ONCE, manually, before Git sync takes ownership of the rest of the
-  stacks. Creates the S3 bucket that hosts nested CFN templates, the
-  GitHub OIDC provider, two OIDC roles -- one for the infra repo's
-  template-packaging workflow, one for the app repo's build/push workflow
-  -- and the app's ECR repository. Because the two workflows now live in
-  genuinely separate repos, each role's trust policy is already isolated
-  by repo; it also checks GitHub's job_workflow_ref claim as defense in
-  depth, matching this account's other labs.
 
 Parameters:
   ProjectName:
     Type: String
     Default: photo-uploader
-    Description: Prefix used for all resource names/tags in this lab.
 
   GitHubOrg:
     Type: String
-    Description: GitHub org or username that owns both repos (e.g. "1MuhireDavid").
 
   InfraRepoName:
     Type: String
@@ -39,40 +19,25 @@ Parameters:
   AllowedGitRef:
     Type: String
     Default: "refs/heads/main"
-    Description: Git ref allowed to assume the OIDC roles (branch protection boundary).
 
   InfraPackagingWorkflowFile:
     Type: String
     Default: package-templates.yml
-    Description: Filename (under the infra repo's .github/workflows/) of the packaging workflow.
 
   AppBuildWorkflowFile:
     Type: String
     Default: build-and-push.yml
-    Description: Filename (under the app repo's .github/workflows/) of the build/push workflow.
 
   CreateOidcProvider:
     Type: String
     Default: "false"
     AllowedValues: ["true", "false"]
-    Description: >
-      Set to "false" (default) if the token.actions.githubusercontent.com
-      OIDC provider already exists in this AWS account -- only one is
-      allowed per account, and other labs in this account typically
-      created it already. Set "true" only if IAM > Identity providers
-      shows none registered for GitHub yet.
 
 Conditions:
   ShouldCreateOidcProvider: !Equals [!Ref CreateOidcProvider, "true"]
 
 Resources:
 
-  # ---------------------------------------------------------------------
-  # S3 bucket that hosts nested CloudFormation template bodies. root.yaml
-  # references child templates here via TemplateURL. Versioned so we keep
-  # a full history of every infra change independent of git (defense in
-  # depth if the repo history is ever rewritten).
-  # ---------------------------------------------------------------------
   TemplatesBucket:
     Type: AWS::S3::Bucket
     DeletionPolicy: Retain
@@ -119,16 +84,6 @@ Resources:
             Condition:
               Bool:
                 "aws:SecureTransport": "false"
-          # root.yaml's nested AWS::CloudFormation::Stack resources fetch
-          # their child templates via TemplateURL. For NESTED stacks
-          # (unlike the root template), CloudFormation performs that S3
-          # GetObject using the credentials of the stack's own execution
-          # role (here, the Git sync stack execution role) -- not a
-          # blanket cloudformation.amazonaws.com service identity. Since
-          # the exact auto-generated Git sync execution role name isn't
-          # known to this template, grant read to any IAM principal in
-          # THIS account instead (still same-account only, not public --
-          # PublicAccessBlockConfiguration continues to block that).
           - Sid: AllowAccountPrincipalsReadTemplates
             Effect: Allow
             Principal:
@@ -136,10 +91,6 @@ Resources:
             Action: "s3:GetObject"
             Resource: !Sub "${TemplatesBucket.Arn}/templates/*"
 
-  # ---------------------------------------------------------------------
-  # GitHub OIDC provider (singleton per account -- if another lab in this
-  # account already created it, leave CreateOidcProvider at "false")
-  # ---------------------------------------------------------------------
   GitHubOidcProvider:
     Type: AWS::IAM::OIDCProvider
     Condition: ShouldCreateOidcProvider
@@ -147,22 +98,9 @@ Resources:
       Url: https://token.actions.githubusercontent.com
       ClientIdList:
         - sts.amazonaws.com
-      # GitHub's OIDC token-signing thumbprint. AWS validates the TLS chain
-      # itself for *.actions.githubusercontent.com providers; this value is
-      # required by the resource schema but no longer used for validation.
       ThumbprintList:
         - 6938fd4d98bab03faadb97b34396831e3780aea1
 
-  # ---------------------------------------------------------------------
-  # Role for the infra repo's template-packaging workflow. Scoped on the
-  # OIDC token's discrete repository/ref/job_workflow_ref claims (NOT the
-  # composite "sub" string): GitHub sometimes appends an immutable
-  # owner/repo database ID to sub ("org@12345/repo@67890"), which would
-  # otherwise force a StringLike wildcard here just to keep matching. The
-  # "repository" and "ref" claims are always plain, so this stays an exact
-  # StringEquals match on (a) this repo, (b) this branch, and (c) this
-  # exact workflow file -- with no wildcard surface at all.
-  # ---------------------------------------------------------------------
   InfraPackagingRole:
     Type: AWS::IAM::Role
     Properties:
@@ -198,23 +136,12 @@ Resources:
         - Key: Project
           Value: !Ref ProjectName
 
-  # ---------------------------------------------------------------------
-  # ECR repository for the application image. Created here (not in a
-  # Git-sync-owned nested stack) so it exists, and can already hold a real
-  # image, before the root stack's first CREATE ever runs -- see the
-  # top-of-file note on why (no NAT Gateway to fall back on).
-  # ---------------------------------------------------------------------
   AppRepository:
     Type: AWS::ECR::Repository
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
       RepositoryName: !Sub "${ProjectName}-app"
-      # MUTABLE: rubric calls for a "consistent and mutable" tagging
-      # strategy. Every build pushes a floating ":latest" tag (what
-      # ECR PutImage/EventBridge/CodePipeline key off of) AND an immutable
-      # ":sha-<gitsha>" tag for traceability/rollback -- see the app repo's
-      # README.
       ImageTagMutability: MUTABLE
       ImageScanningConfiguration:
         ScanOnPush: true
@@ -226,12 +153,12 @@ Resources:
             "rules": [
               {
                 "rulePriority": 1,
-                "description": "Keep only the last 20 sha-tagged images",
+                "description": "Keep only the last 3 sha-tagged images",
                 "selection": {
                   "tagStatus": "tagged",
                   "tagPrefixList": ["sha-"],
                   "countType": "imageCountMoreThan",
-                  "countNumber": 20
+                  "countNumber": 3
                 },
                 "action": { "type": "expire" }
               }
@@ -243,14 +170,6 @@ Resources:
         - Key: Project
           Value: !Ref ProjectName
 
-  # ---------------------------------------------------------------------
-  # Role for the app repo's build/push workflow. Scoped on the OIDC
-  # token's discrete repository/ref/job_workflow_ref claims (see the
-  # matching comment on InfraPackagingRole above for why -- not the
-  # composite "sub" string, which GitHub can suffix with an immutable
-  # owner/repo database ID and force a wildcard match), plus push-only ECR
-  # actions on a single, named repository ARN.
-  # ---------------------------------------------------------------------
   AppEcrPushRole:
     Type: AWS::IAM::Role
     Properties:
@@ -294,10 +213,6 @@ Resources:
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
-              # The pipeline's ArtifactBucket lives in the 07-cicd-pipeline
-              # nested stack (created later, via Git sync), not here -- but
-              # its name is deterministic (see that template), so this role
-              # can be scoped to it without a cross-stack reference.
               - Sid: PutDeployTemplatesZip
                 Effect: Allow
                 Action: "s3:PutObject"
@@ -307,14 +222,6 @@ Resources:
           Value: !Ref ProjectName
 
 Outputs:
-  # These four are consumed automatically by cfn/root.yaml via
-  # Fn::ImportValue -- NOT copy-pasted into cfn/deployment-file.yaml.
-  # That only works because both stacks are keyed off the same
-  # ProjectName ("photo-uploader" by default in both places): if you ever
-  # deploy this bootstrap stack with a different ProjectName than
-  # root.yaml uses, the Fn::ImportValue lookups in root.yaml will fail to
-  # resolve ("No export named ... found") since the export name embeds
-  # ProjectName. Keep the two in sync.
   TemplatesBucketName:
     Value: !Ref TemplatesBucket
     Export:
@@ -335,9 +242,6 @@ Outputs:
     Export:
       Name: !Sub "${ProjectName}-ecr-repository-arn"
 
-  # These two are NOT consumed by any CloudFormation stack -- they're
-  # copy-pasted by hand into GitHub repo secrets (see README's "Full setup
-  # order"), so a CFN Export would add nothing here.
   InfraPackagingRoleArn:
     Value: !GetAtt InfraPackagingRole.Arn
 

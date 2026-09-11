@@ -1,10 +1,4 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: >
-  Public ALB + ECS Fargate service for the Photo Uploader lab. The ECS
-  service uses deployment controller CODE_DEPLOY, so CodeDeploy (not ECS
-  itself) owns traffic shifting between the "blue" and "green" target
-  groups. The task is wired with least-privilege access to the photos S3
-  bucket and the RDS-managed DB credential secret.
 
 Parameters:
   ProjectName:
@@ -25,27 +19,11 @@ Parameters:
   TestListenerPort:
     Type: Number
     Default: 8081
-    Description: >
-      Second ALB listener port, used only during a deployment: CodeDeploy
-      points it at the "green" (candidate) target group before any prod
-      traffic shifts, so http://<alb-dns>:<this-port> serves the new
-      version for pre-production validation while the prod listener (80)
-      still serves the current "blue" version. Distinct from ContainerPort
-      -- this is an ALB listener port, not the container's port.
   RepositoryUri:
     Type: String
-    Description: ECR repository URI (from the bootstrap stack -- see bootstrap/00-bootstrap.yaml)
   InitialImageTag:
     Type: String
     Default: "latest"
-    Description: >
-      Tag in our own ECR repo (RepositoryUri) to deploy on the very first
-      CREATE. There's no NAT Gateway or other internet egress in this VPC,
-      so a public placeholder image can't be pulled here -- push a real
-      image to ECR under this tag BEFORE creating this stack (see
-      README's "Full setup order"). Once CodeDeploy performs the first
-      real blue/green release, it owns the running task definition --
-      this parameter no longer matters until the next full CREATE.
   TaskCpu:
     Type: String
     Default: "256"
@@ -66,10 +44,8 @@ Parameters:
   CpuTargetPercent:
     Type: Number
     Default: 60
-    Description: Target average CPU utilization (%) for the scaling policy
   AppOwnerName:
     Type: String
-    Description: Full name displayed in the app footer
   LabName:
     Type: String
     Default: "Photo Uploader Lab"
@@ -87,11 +63,9 @@ Parameters:
     Type: String
   DbSecretArn:
     Type: String
-    Description: RDS-managed Secrets Manager secret ARN holding {username, password}
 
 Resources:
 
-  # ------------------------------- ALB ---------------------------------
   ApplicationLoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
@@ -105,8 +79,6 @@ Resources:
         - Key: Name
           Value: !Sub "${ProjectName}-alb"
 
-  # Two target groups so CodeDeploy can shift traffic from Blue -> Green
-  # (and back, on rollback) without any downtime.
   BlueTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
@@ -115,9 +87,6 @@ Resources:
       Protocol: HTTP
       TargetType: ip
       VpcId: !Ref VpcId
-      # The app's gallery page at "/" returns 200 when it (and its DB
-      # read) is healthy, so a DB outage correctly fails the health check
-      # instead of masking it.
       HealthCheckPath: /
       HealthCheckIntervalSeconds: 15
       HealthCheckTimeoutSeconds: 5
@@ -153,17 +122,7 @@ Resources:
       DefaultActions:
         - Type: forward
           TargetGroupArn: !Ref BlueTargetGroup
-          # CodeDeploy rewrites this default action's target group during
-          # each blue/green deployment -- do not drift-correct manually.
 
-  # Pre-production validation listener. CodeDeploy's TestTrafficRoute
-  # (07-cicd-pipeline.yaml) points this at the green target group as soon
-  # as the new task set is healthy, BEFORE ProdListener's traffic shifts --
-  # combined with DeploymentReadyOption: STOP_DEPLOYMENT there, the
-  # deployment then pauses so http://<alb-dns>:${TestListenerPort} can be
-  # checked by hand before promoting (or letting it time out and roll
-  # back). Same default-action caveat as ProdListener: CodeDeploy rewrites
-  # this on every deployment, don't drift-correct manually.
   TestListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
@@ -174,7 +133,6 @@ Resources:
         - Type: forward
           TargetGroupArn: !Ref BlueTargetGroup
 
-  # ------------------------------- ECS -----------------------------------
   EcsCluster:
     Type: AWS::ECS::Cluster
     Properties:
@@ -224,15 +182,10 @@ Resources:
               - Effect: Allow
                 Action: "logs:PutLogEvents"
                 Resource: !Sub "${AppLogGroup.Arn}:*"
-              # Lets the ECS agent resolve the DB_USERNAME/DB_PASSWORD
-              # `Secrets` entries below from the RDS-managed secret at
-              # task startup.
               - Effect: Allow
                 Action: "secretsmanager:GetSecretValue"
                 Resource: !Ref DbSecretArn
 
-  # Application-level permissions the running container itself needs:
-  # read/write its own uploaded objects in the photos bucket. Nothing else.
   TaskRole:
     Type: AWS::IAM::Role
     Properties:
@@ -299,17 +252,9 @@ Resources:
               awslogs-group: !Ref AppLogGroup
               awslogs-region: !Ref AWS::Region
               awslogs-stream-prefix: app
-    # NOTE: CodeDeploy blue/green deployments register a *new* task
-    # definition revision on every release. This resource only defines
-    # revision 1 (the InitialImageTag image); CloudFormation must NOT try
-    # to "correct" the running revision back afterwards, so the ECS
-    # service below ignores TaskDefinition changes post-creation.
 
   EcsService:
     Type: AWS::ECS::Service
-    # Because DeploymentController is CODE_DEPLOY, CloudFormation creates
-    # the service once and then steps back -- CodeDeploy owns the running
-    # task definition + target group wiring from here on.
     Properties:
       ServiceName: !Sub "${ProjectName}-service"
       Cluster: !Ref EcsCluster
@@ -330,7 +275,6 @@ Resources:
       HealthCheckGracePeriodSeconds: 60
     DependsOn: ProdListener
 
-  # ------------------------- Auto Scaling (1-4, CPU) ----------------------
   ScalableTarget:
     Type: AWS::ApplicationAutoScaling::ScalableTarget
     Properties:

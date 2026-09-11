@@ -1,13 +1,4 @@
-# Note: nested templates like this one are packaged to S3 by
-# .github/workflows/package-templates.yml whenever this file changes.
-# (trivial change to retrigger packaging workflow after the OIDC fix: 2026-09-02)
 AWSTemplateFormatVersion: "2010-09-09"
-Description: >
-  Multi-AZ VPC for the Photo Uploader lab. 2 public subnets (ALB) and 2
-  private subnets (ECS Fargate tasks, RDS, and interface/gateway VPC
-  endpoints) spread across 2 Availability Zones for high availability. No
-  NAT Gateway -- all private-subnet egress that matters (ECR, CloudWatch
-  Logs, STS, Secrets Manager, S3) travels over VPC endpoints instead.
 
 Parameters:
   ProjectName:
@@ -58,7 +49,6 @@ Resources:
       VpcId: !Ref VPC
       InternetGatewayId: !Ref InternetGateway
 
-  # ---------------- Public subnets (ALB only -- no NAT gateways) ----------------
   PublicSubnet1:
     Type: AWS::EC2::Subnet
     Properties:
@@ -109,7 +99,6 @@ Resources:
       SubnetId: !Ref PublicSubnet2
       RouteTableId: !Ref PublicRouteTable
 
-  # ---------------- Private subnets (ECS Fargate tasks + RDS) ----------------
   PrivateSubnet1:
     Type: AWS::EC2::Subnet
     Properties:
@@ -130,14 +119,6 @@ Resources:
         - Key: Name
           Value: !Sub "${ProjectName}-private-az2"
 
-  # ---------------- Private route tables ----------------
-  # No default (0.0.0.0/0) route here -- there's no NAT Gateway or IGW
-  # attachment on these tables. Every destination the private subnets
-  # actually need (ECR, CloudWatch Logs, STS, Secrets Manager, S3) is
-  # reached over VPC endpoints instead: the interface endpoints resolve
-  # via private DNS to ENIs inside these subnets, and the S3 gateway
-  # endpoint adds its own prefix-list route directly to these route
-  # tables (see 03-vpc-endpoints.yaml).
   PrivateRouteTable1:
     Type: AWS::EC2::RouteTable
     Properties:

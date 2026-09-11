@@ -1,10 +1,4 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: >
-  RDS PostgreSQL instance for photo metadata (descriptions), in the private
-  subnets alongside ECS. The master credential is entirely RDS-managed
-  (ManageMasterUserPassword) -- it is generated and rotated by AWS Secrets
-  Manager, and never appears in this template, a parameter, or a
-  deployment-file.yaml value.
 
 Parameters:
   ProjectName:
@@ -29,9 +23,6 @@ Parameters:
     Type: String
     Default: "false"
     AllowedValues: ["true", "false"]
-    Description: >
-      "false" keeps this lab cheap (the rubric requires a multi-AZ VPC,
-      not a multi-AZ database). Set "true" for production-grade failover.
   DbPort:
     Type: Number
     Default: 5432
@@ -49,16 +40,10 @@ Resources:
 
   Database:
     Type: AWS::RDS::DBInstance
-    # Lab teardown hygiene: no snapshot/replica left behind (and no
-    # matching storage cost) when the stack is deleted. A production
-    # deployment should use DeletionPolicy: Snapshot instead.
     DeletionPolicy: Delete
     UpdateReplacePolicy: Delete
     Properties:
       Engine: postgres
-      # EngineVersion intentionally omitted: AWS provisions the current
-      # default supported PostgreSQL version for this engine at create
-      # time, so this template never goes stale as versions are deprecated.
       DBInstanceClass: !Ref DbInstanceClass
       AllocatedStorage: !Ref DbAllocatedStorage
       StorageType: gp3
@@ -85,5 +70,4 @@ Outputs:
   DbName:
     Value: !Ref DbName
   DbSecretArn:
-    Description: RDS-managed Secrets Manager secret holding {username, password}
     Value: !GetAtt Database.MasterUserSecret.SecretArn

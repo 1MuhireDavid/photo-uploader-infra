@@ -1,60 +1,10 @@
 AWSTemplateFormatVersion: "2010-09-09"
-# ROOT STACK - deployed by CloudFormation Git sync. Wires together the
-# nested stacks that make up the Photo Uploader lab:
-#   01-network.yaml           Multi-AZ VPC, public/private subnets (no NAT)
-#   02-security.yaml           Least-privilege security groups
-#   03-vpc-endpoints.yaml       Private VPC endpoints (ECR repo lives in
-#                                bootstrap/00-bootstrap.yaml instead --
-#                                see that module's own comment for why)
-#   04-storage-cdn.yaml           Private S3 photos bucket + CloudFront (OAC)
-#   05-database.yaml               RDS PostgreSQL (photo metadata)
-#   06-alb-ecs.yaml                  Public ALB, ECS cluster/service, auto scaling
-#   07-cicd-pipeline.yaml             CodePipeline + CodeDeploy blue/green + EventBridge
-# Nested templates are pulled from S3 (see the <Module>TemplateHash
-# parameters below, and the TemplatesBucket import inside each nested
-# stack's TemplateURL) rather than embedded here, per the lab's "host
-# nested templates in S3" requirement, and so Git sync (which deploys this
-# single file as-is, with no local packaging step) can still resolve child
-# templates.
-#
-# Each nested stack has its OWN hash parameter (not one shared version)
-# because CloudFormation only re-fetches/re-diffs a nested stack when its
-# TemplateURL string actually changes -- per-file content hashes mean an
-# unchanged module's TemplateURL stays byte-identical (no pointless
-# re-evaluation) while a changed one gets a new URL (forcing the update
-# CloudFormation would otherwise miss). .github/workflows/
-# package-templates.yml computes these hashes and commits them to
-# deployment-file.yaml automatically -- nothing to paste by hand.
-#
-# This template imports four values (the templates bucket name and the
-# three EcrRepository* values) from bootstrap/00-bootstrap.yaml via
-# Fn::ImportValue/CloudFormation Exports, rather than taking them as
-# Parameters a human copies into deployment-file.yaml -- one less place
-# for those values to drift out of sync with the bootstrap stack that
-# actually owns them. This ONLY resolves correctly if this template's
-# ProjectName parameter matches the ProjectName the bootstrap stack was
-# deployed with (both default to "photo-uploader"); a mismatch fails
-# stack creation with "No export named ... found", not silently.
-#
-# (The above lives in a plain comment, not the Description: property,
-# because Description has a hard 1024-character CloudFormation limit and
-# this text alone is longer than that.)
-Description: >
-  ROOT STACK - deployed by CloudFormation Git sync. Wires together the
-  network/security/VPC-endpoints/storage/database/compute/CI-CD nested
-  stacks that make up the Photo Uploader lab (see the file-level comment
-  above for the full module list and the bootstrap-stack Export/ImportValue
-  wiring notes).
 
 Parameters:
   ProjectName:
     Type: String
     Default: photo-uploader
 
-  # Each is a short content hash (git blob hash, first 12 hex chars) of the
-  # matching file under cfn/nested-templates/, auto-computed and committed
-  # to deployment-file.yaml by package-templates.yml -- see this file's
-  # top comment for why these are per-file rather than one shared version.
   NetworkTemplateHash: { Type: String }
   SecurityTemplateHash: { Type: String }
   VpcEndpointsTemplateHash: { Type: String }
@@ -63,20 +13,17 @@ Parameters:
   AlbEcsTemplateHash: { Type: String }
   CicdPipelineTemplateHash: { Type: String }
 
-  # --- Networking ---
   VpcCIDR: { Type: String, Default: 10.30.0.0/16 }
   PublicSubnet1CIDR: { Type: String, Default: 10.30.0.0/24 }
   PublicSubnet2CIDR: { Type: String, Default: 10.30.1.0/24 }
   PrivateSubnet1CIDR: { Type: String, Default: 10.30.10.0/24 }
   PrivateSubnet2CIDR: { Type: String, Default: 10.30.11.0/24 }
 
-  # --- Storage / CDN ---
   CloudFrontPriceClass:
     Type: String
     Default: PriceClass_200
     AllowedValues: [PriceClass_100, PriceClass_200, PriceClass_All]
 
-  # --- Database ---
   DbInstanceClass: { Type: String, Default: db.t3.micro }
   DbAllocatedStorage: { Type: Number, Default: 20 }
   DbName: { Type: String, Default: photogallery }
@@ -84,35 +31,19 @@ Parameters:
   DbMultiAZ: { Type: String, Default: "false", AllowedValues: ["true", "false"] }
   DbPort: { Type: Number, Default: 5432 }
 
-  # --- Application / ECS ---
   ContainerPort: { Type: Number, Default: 8080 }
   TestListenerPort:
     Type: Number
     Default: 8081
-    Description: >
-      ALB pre-production validation listener port -- CodeDeploy routes it
-      to the "green" target group before prod traffic shifts. See
-      06-alb-ecs.yaml's TestListener and 02-security.yaml's
-      TestListenerAllowedCidr.
   TestListenerAllowedCidr:
     Type: String
     Default: 0.0.0.0/0
-    Description: CIDR allowed to reach TestListenerPort. Restrict this in a non-lab environment.
   DeploymentReadyWaitMinutes:
     Type: Number
     Default: 30
-    Description: >
-      Minutes CodeDeploy waits after routing TestListenerPort to a new
-      deployment for a human to validate it and run
-      `aws deploy continue-deployment`, before stopping/rolling back on
-      its own. See 07-cicd-pipeline.yaml.
   InitialImageTag:
     Type: String
     Default: latest
-    Description: >
-      Tag in ECR to deploy on the very first CREATE. Must already exist in
-      the repo (push it via the app repo's build workflow first) -- there's
-      no NAT Gateway in this VPC to fall back on a public placeholder image.
   TaskCpu: { Type: String, Default: "256" }
   TaskMemory: { Type: String, Default: "512" }
   MinTasks: { Type: Number, Default: 1 }
@@ -121,12 +52,10 @@ Parameters:
   CpuTargetPercent: { Type: Number, Default: 60 }
   AppOwnerName:
     Type: String
-    Description: Your full name, shown in the app footer
   LabName:
     Type: String
     Default: "Photo Uploader Lab"
 
-  # --- CI/CD wiring ---
   DeployedImageTag:
     Type: String
     Default: latest
@@ -173,9 +102,6 @@ Resources:
   BackingServicesStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      # Logical ID kept as BackingServicesStack (not renamed to match the
-      # file) to avoid CloudFormation replacing this nested stack -- see
-      # the comment at the top of 03-vpc-endpoints.yaml for why.
       TemplateURL: !Sub
         - "https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/templates/03-vpc-endpoints-${VpcEndpointsTemplateHash}.yaml"
         - TemplatesBucket: !ImportValue
@@ -290,17 +216,8 @@ Resources:
 
 Outputs:
   AlbEndpoint:
-    Description: Public URL of the application
     Value: !Sub "http://${AlbEcsStack.Outputs.AlbDnsName}"
   AlbTestEndpoint:
-    Description: >-
-      Pre-production validation URL. Outside of an active deployment this
-      serves the same live app as AlbEndpoint (CodeDeploy points both
-      listeners at whichever target group is currently promoted); during
-      a deployment, once it's paused waiting for `aws deploy
-      continue-deployment` (see 07-cicd-pipeline.yaml), this URL serves
-      the new "green" candidate while AlbEndpoint still serves the old
-      "blue" version -- that's the window to validate the new version in.
     Value: !Sub "http://${AlbEcsStack.Outputs.AlbDnsName}:${TestListenerPort}"
   EcrRepositoryUri:
     Value: !ImportValue
@@ -312,17 +229,12 @@ Outputs:
   PipelineName:
     Value: !GetAtt CicdPipelineStack.Outputs.PipelineName
   ArtifactBucketName:
-    Description: >-
-      Give this to the app repo's build workflow as the
-      PIPELINE_ARTIFACT_BUCKET variable (see README)
     Value: !GetAtt CicdPipelineStack.Outputs.ArtifactBucketName
   VpcId:
     Value: !GetAtt NetworkStack.Outputs.VpcId
   PhotosBucketName:
     Value: !GetAtt StorageCdnStack.Outputs.PhotosBucketName
   CloudFrontDomainName:
-    Description: Serves uploaded photo images (private S3 origin via OAC)
     Value: !GetAtt StorageCdnStack.Outputs.CloudFrontDomainName
   DbEndpointAddress:
     Value: !GetAtt DatabaseStack.Outputs.DbEndpointAddress
-
