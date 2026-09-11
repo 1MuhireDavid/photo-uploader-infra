@@ -33,12 +33,6 @@ parameters:
   # wiring breaks (fails stack creation with "No export named ... found").
   ProjectName: photo-uploader
 
-  # AUTO-MANAGED by .github/workflows/package-templates.yml -- do not
-  # hand-edit. Each is a content hash (git blob hash, first 12 hex chars)
-  # of the matching file under cfn/nested-templates/; the workflow
-  # recomputes all 7 on every push that touches those files (or root.yaml)
-  # and commits back here ONLY the ones that actually changed, which is
-  # what makes Git sync pick up that specific nested stack's new template.
   NetworkTemplateHash: 15069d971ef9
   SecurityTemplateHash: 7bc20ef257c9
   VpcEndpointsTemplateHash: 76ff852ae33d
