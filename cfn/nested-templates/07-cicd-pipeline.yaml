@@ -168,7 +168,15 @@ Resources:
             Statement:
               - Sid: ArtifactBucketAccess
                 Effect: Allow
-                Action: ["s3:GetObject", "s3:PutObject", "s3:GetBucketVersioning"]
+                # GetObjectVersion (not just GetObject) is required because
+                # ArtifactBucket has versioning enabled -- CodePipeline's S3
+                # source action reads a specific object version, which
+                # GetObject alone isn't sufficient to fetch.
+                Action:
+                  - "s3:GetObject"
+                  - "s3:GetObjectVersion"
+                  - "s3:PutObject"
+                  - "s3:GetBucketVersioning"
                 Resource:
                   - !GetAtt ArtifactBucket.Arn
                   - !Sub "${ArtifactBucket.Arn}/*"
