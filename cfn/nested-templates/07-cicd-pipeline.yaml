@@ -179,6 +179,14 @@ Resources:
                   - "ecr:GetDownloadUrlForLayer"
                   - "ecr:BatchGetImage"
                 Resource: !Ref EcrRepositoryArn
+              - Sid: EcrAuthToken
+                Effect: Allow
+                # ECR's source action needs this to resolve the image, and
+                # GetAuthorizationToken is account-level -- ECR doesn't
+                # support scoping it to a single repository ARN, so this
+                # has to be its own statement with Resource: "*".
+                Action: "ecr:GetAuthorizationToken"
+                Resource: "*"
               - Sid: CodeDeployTrigger
                 Effect: Allow
                 Action:
