@@ -67,7 +67,7 @@ parameters:
   # Minutes CodeDeploy waits, after pointing TestListenerPort at a new
   # deployment, for `aws deploy continue-deployment` before stopping and
   # rolling back on its own. See 07-cicd-pipeline.yaml.
-  DeploymentReadyWaitMinutes: 30
+  DeploymentReadyWaitMinutes: 5
   # Must already exist in ECR (pushed by the app repo's build workflow)
   # BEFORE this stack is created -- there's no NAT Gateway here to fall
   # back on a public placeholder image.
