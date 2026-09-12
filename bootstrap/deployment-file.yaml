@@ -21,9 +21,6 @@
 template-file-path: bootstrap/00-bootstrap.yaml
 
 parameters:
-  # Must match the ProjectName cfn/deployment-file.yaml deploys the root
-  # stack with -- root.yaml resolves TemplatesBucketName and the
-  # EcrRepository* values from this stack's Exports via Fn::ImportValue.
   ProjectName: photo-uploader
 
   GitHubOrg: 1MuhireDavid
