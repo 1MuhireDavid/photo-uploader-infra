@@ -287,3 +287,5 @@ Outputs:
     Value: !GetAtt StorageCdnStack.Outputs.CloudFrontDomainName
   DbEndpointAddress:
     Value: !GetAtt DatabaseStack.Outputs.DbEndpointAddress
+  DbSecretArn:
+    Value: !GetAtt DatabaseStack.Outputs.DbSecretArn

@@ -224,6 +224,14 @@ Resources:
                 Effect: Allow
                 Action: "s3:PutObject"
                 Resource: !Sub "arn:aws:s3:::${ProjectName}-pipeline-${AWS::AccountId}-${AWS::Region}/deploy-templates/*"
+        - PolicyName: ReadRootStackOutputs
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: DescribeRootStack
+                Effect: Allow
+                Action: "cloudformation:DescribeStacks"
+                Resource: !Sub "arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${ProjectName}/*"
       Tags:
         - Key: Project
           Value: !Ref ProjectName
