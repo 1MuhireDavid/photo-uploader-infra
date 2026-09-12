@@ -15,15 +15,6 @@ Parameters:
     Type: String
   TestListenerArn:
     Type: String
-  DeploymentConfigName:
-    Type: String
-    Default: CodeDeployDefault.ECSCanary10Percent5Minutes
-    AllowedValues:
-      - CodeDeployDefault.ECSAllAtOnce
-      - CodeDeployDefault.ECSCanary10Percent5Minutes
-      - CodeDeployDefault.ECSCanary10Percent15Minutes
-      - CodeDeployDefault.ECSLinear10PercentEvery1Minutes
-      - CodeDeployDefault.ECSLinear10PercentEvery3Minutes
   BlueTargetGroupName:
     Type: String
   GreenTargetGroupName:
@@ -87,7 +78,7 @@ Resources:
       ApplicationName: !Ref CodeDeployApplication
       DeploymentGroupName: !Sub "${ProjectName}-dg"
       ServiceRoleArn: !GetAtt CodeDeployServiceRole.Arn
-      DeploymentConfigName: !Ref DeploymentConfigName
+      DeploymentConfigName: CodeDeployDefault.ECSAllAtOnce
       DeploymentStyle:
         DeploymentType: BLUE_GREEN
         DeploymentOption: WITH_TRAFFIC_CONTROL

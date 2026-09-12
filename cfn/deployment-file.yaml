@@ -64,11 +64,6 @@ parameters:
   # environment, since this listener can briefly serve an unvalidated build.
   TestListenerPort: 8081
   TestListenerAllowedCidr: 0.0.0.0/0
-  # How prod traffic shifts to the validated "green" task set: 10% first,
-  # then the rest 5 minutes later. That 5-minute window is the
-  # pre-production gate -- it resolves on its own, no manual
-  # `continue-deployment` needed. See 07-cicd-pipeline.yaml.
-  DeploymentConfigName: CodeDeployDefault.ECSCanary10Percent5Minutes
   # Must already exist in ECR (pushed by the app repo's build workflow)
   # BEFORE this stack is created -- there's no NAT Gateway here to fall
   # back on a public placeholder image.
