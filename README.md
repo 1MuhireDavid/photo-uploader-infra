@@ -179,10 +179,11 @@ see that step's own comment) -- B4 ECR `PUSH` event fires EventBridge -- B5
 starts CodePipeline -- B6 pipeline reads both the image and the S3 zip from
 B2 -- B7 hands both to CodeDeploy -- B8 CodeDeploy registers a new task
 definition and launches the GREEN task set -- B9 points the ALB's `:8081`
-test listener at GREEN for pre-production validation (pauses here up to 30
-min for `aws deploy continue-deployment`) -- B10 on promote, shifts the
-ALB's prod `:80` listener from BLUE to GREEN and terminates the old BLUE
-task set 10 minutes later.
+test listener at GREEN for pre-production validation (waits here up to 5
+min -- `aws deploy continue-deployment` promotes early, doing nothing
+auto-promotes once the wait elapses) -- B10 on promote, shifts the ALB's
+prod `:80` listener from BLUE to GREEN and terminates the old BLUE task
+set 10 minutes later.
 
 **Not shown on the diagram** (kept out of the visual per the no-NAT-Gateway,
 least-privilege design -- see the bullets below for full detail): exact
@@ -231,15 +232,16 @@ and CloudFront cache/price-class settings.
 - **Pre-production validation:** the ALB has a second listener
   (`TestListenerPort`, default `8081`) alongside the prod one (`80`).
   CodeDeploy points it at the new "green" task set as soon as it's
-  healthy, **before** any prod traffic shifts, then **pauses the
-  deployment** (`DeploymentReadyOption: STOP_DEPLOYMENT`) for up to
-  `DeploymentReadyWaitMinutes` (default 30). During that pause,
+  healthy, **before** any prod traffic shifts, then waits up to
+  `DeploymentReadyWaitMinutes` (default 5) before continuing on its own
+  (`DeploymentReadyOption: ActionOnTimeout: CONTINUE_DEPLOYMENT`) —
+  automated end to end, no manual step required. During that window,
   `AlbEndpoint` (root stack output) still serves the old "blue" version
-  while `AlbTestEndpoint` serves the new one — check it, then run
-  `aws deploy continue-deployment` (or the console's "Continue
-  deployment" button) to promote it to prod, or do nothing and let it
-  time out and roll back automatically. See "Validating a deployment"
-  below.
+  while `AlbTestEndpoint` serves the new one; if you want to check it
+  before it promotes, run `aws deploy continue-deployment` (or the
+  console's "Continue deployment" button) early to promote it
+  immediately instead of waiting out the window. See "Validating a
+  deployment" below.
 - **IaC delivery:** CloudFormation **Git sync** deploys `cfn/root.yaml`
   straight from this repo on every push to `main`; nested stack templates
   are hosted in S3 (bucket created by a one-time bootstrap stack) since
@@ -540,10 +542,11 @@ image (steps 3–4) *before* Git sync ever runs (step 7).
    time. That upload, plus the new `:latest` push, is what EventBridge
    picks up to start CodePipeline, which hands off to CodeDeploy for the
    first real blue/green traffic shift.
-9. **Validate and continue the deployment** — this (and every later)
-   deployment pauses partway through; see "Validating a deployment"
-   below. Do this now, or the deployment will simply sit paused until
-   `DeploymentReadyWaitMinutes` elapses and it rolls back.
+9. **Optionally validate before it auto-promotes** — this (and every
+   later) deployment gives you a short window on `AlbTestEndpoint`
+   before it continues on its own; see "Validating a deployment" below.
+   No action is required — if you don't do anything, it promotes itself
+   once `DeploymentReadyWaitMinutes` elapses.
 10. **Open the app** — CloudFormation console → root stack
     (`photo-uploader`) → **Outputs** tab → `AlbEndpoint`. The
     `CloudFrontDomainName` output is where uploaded images are served
@@ -552,21 +555,24 @@ image (steps 3–4) *before* Git sync ever runs (step 7).
 ## Validating a deployment
 
 Every deployment — the first one from step 9 above, and every later push
-to the app repo — pauses partway through rather than completing on its
-own:
+to the app repo — gives you a short window to check the new version
+before it goes live, but doesn't require it: left alone, it promotes
+itself automatically.
 
 1. **Kick it off** as usual: push to `photo-uploader-app` (or, for a
    repeat of an existing image, re-run its build workflow). EventBridge →
    CodePipeline → CodeDeploy starts a new blue/green deployment.
-2. **Wait for the pause.** Watch it in **CodeDeploy console → Applications
-   → `photo-uploader-app` → Deployment groups → `photo-uploader-dg`** —
-   its status becomes stuck at a step waiting for traffic rerouting once
-   the new ("green") task set is healthy. At this point `AlbEndpoint`
-   still serves the previous version; `AlbTestEndpoint` (root stack
-   output, `http://<alb-dns>:8081` by default) serves the new one.
-3. **Check `AlbTestEndpoint`.** This is the whole point of the pause —
-   confirm the new version actually works before real users see it.
-4. **Promote it**, once you're satisfied:
+2. **Watch it reach the wait step.** Watch it in **CodeDeploy console →
+   Applications → `photo-uploader-app` → Deployment groups →
+   `photo-uploader-dg`** — its status sits at a step waiting for traffic
+   rerouting once the new ("green") task set is healthy. At this point
+   `AlbEndpoint` still serves the previous version; `AlbTestEndpoint`
+   (root stack output, `http://<alb-dns>:8081` by default) serves the
+   new one.
+3. **Check `AlbTestEndpoint`**, if you want to — confirm the new version
+   actually works before real users see it.
+4. **Promote it early**, if you've checked and you're satisfied there's
+   no need to wait out the rest of the window:
    ```
    aws deploy continue-deployment \
      --deployment-id <id-from-the-CodeDeploy-console> \
@@ -575,9 +581,10 @@ own:
    or click **Continue deployment** on the deployment's page in the
    CodeDeploy console. `AlbEndpoint` now serves the new version too, and
    the old task set terminates after `TerminationWaitTimeInMinutes` (10).
-5. **Or do nothing.** After `DeploymentReadyWaitMinutes` (default 30)
-   CodeDeploy stops the deployment and rolls back on its own — real
-   traffic on `AlbEndpoint` never saw the untested version either way.
+5. **Or do nothing.** After `DeploymentReadyWaitMinutes` (default 5)
+   CodeDeploy promotes it automatically (`ActionOnTimeout:
+   CONTINUE_DEPLOYMENT`) — same end state as step 4, just without you
+   having to act.
 
 ## Deliverables checklist
 
@@ -606,7 +613,7 @@ own:
 | CloudWatch Logs | `awslogs` driver → `/ecs/photo-uploader-app` log group |
 | Auto scaling 1–4 on CPU | `ScalableTarget` / `CpuScalingPolicy` in `06-alb-ecs.yaml` |
 | Blue/green deployment | `07-cicd-pipeline.yaml`: CodeDeploy `BLUE_GREEN` + `WITH_TRAFFIC_CONTROL`, two target groups |
-| Pre-production validation before traffic shift | `06-alb-ecs.yaml`: `TestListener`; `07-cicd-pipeline.yaml`: `TestTrafficRoute` + `DeploymentReadyOption: STOP_DEPLOYMENT` |
+| Pre-production validation window (auto-promotes, no manual step required) | `06-alb-ecs.yaml`: `TestListener`; `07-cicd-pipeline.yaml`: `TestTrafficRoute` + `DeploymentReadyOption: ActionOnTimeout: CONTINUE_DEPLOYMENT` |
 
 ## Security & cost notes
 
