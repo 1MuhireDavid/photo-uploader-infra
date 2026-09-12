@@ -424,7 +424,8 @@ IAM-sensitive resources too.
            "ecr:CreateRepository", "ecr:DeleteRepository", "ecr:DescribeRepositories",
            "ecr:PutLifecyclePolicy", "ecr:GetLifecyclePolicy", "ecr:DeleteLifecyclePolicy",
            "ecr:PutImageTagMutability", "ecr:PutImageScanningConfiguration",
-           "ecr:TagResource", "ecr:UntagResource", "ecr:ListTagsForResource"
+           "ecr:TagResource", "ecr:UntagResource", "ecr:ListTagsForResource",
+           "ecr:GetRepositoryPolicy", "ecr:SetRepositoryPolicy", "ecr:DeleteRepositoryPolicy"
          ],
          "Resource": "arn:aws:ecr:us-east-1:047719661196:repository/photo-uploader-app"
        }
