@@ -274,9 +274,11 @@ connection to authorize by hand.
 `token.actions.githubusercontent.com` OIDC provider (a **singleton per
 AWS account** — leave `CreateOidcProvider` at `false` if any other lab in
 this account already created one), two scoped OIDC roles — one per repo
-— and the app's **ECR repository**. Deployed once, manually, **not**
-through Git sync, because an OIDC provider must never be at risk of being
-deleted/recreated by a routine app or infra change.
+— and the app's **ECR repository**. Deployed once, either manually (the
+walkthrough below) or via its own Git sync stack (see "Managing bootstrap
+via Git sync" further down) — either way, **not** the same Git sync stack
+as `cfn/root.yaml`, since this file's resources (IAM roles, the OIDC
+provider) need a differently-scoped execution role than the root stack's.
 
 The ECR repository lives here rather than in a Git-sync-owned nested
 stack specifically so a real image can be pushed to it **before** the
@@ -331,6 +333,117 @@ the internet the way a NAT-backed setup could.
    There's nothing to copy into `cfn/deployment-file.yaml` for those
    three; just don't change `ProjectName` between this stack and that
    file.
+
+### Managing bootstrap via Git sync instead
+
+Optional. Once the manual deploy above has run at least once (or if
+you'd rather never touch the console for this at all), you can put
+`bootstrap/00-bootstrap.yaml` under Git sync too, exactly like the root
+stack — but as its **own, separate** Git sync stack, since this
+template's resources need different execution-role permissions than
+`cfn/root.yaml`'s.
+
+Trade-off worth knowing first: this removes the manual-apply pause
+between committing a change and it taking effect in AWS. Every push to
+`main` that touches this file applies directly to live IAM roles, the
+ECR repo, and the templates bucket — the same "no gate" model the root
+stack and `package-templates.yml` already use, just now covering
+IAM-sensitive resources too.
+
+1. **Create a custom stack execution role** (the console's
+   auto-generated one isn't scoped for IAM/OIDC-provider/ECR management).
+   IAM console → **Create role** → **Custom trust policy**:
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [
+       {
+         "Effect": "Allow",
+         "Principal": { "Service": "cloudformation.amazonaws.com" },
+         "Action": "sts:AssumeRole"
+       }
+     ]
+   }
+   ```
+   Attach this permissions policy (scoped to exactly what
+   `bootstrap/00-bootstrap.yaml` creates — update the account
+   ID/`ProjectName` if either differs from `047719661196`/`photo-uploader`):
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [
+       {
+         "Sid": "TemplatesBucketManage",
+         "Effect": "Allow",
+         "Action": [
+           "s3:CreateBucket", "s3:DeleteBucket",
+           "s3:PutBucketTagging", "s3:GetBucketTagging",
+           "s3:PutBucketVersioning", "s3:GetBucketVersioning",
+           "s3:PutEncryptionConfiguration", "s3:GetEncryptionConfiguration",
+           "s3:PutBucketPublicAccessBlock", "s3:GetBucketPublicAccessBlock",
+           "s3:PutLifecycleConfiguration", "s3:GetLifecycleConfiguration",
+           "s3:PutBucketPolicy", "s3:GetBucketPolicy", "s3:DeleteBucketPolicy",
+           "s3:GetBucketAcl", "s3:GetBucketWebsite", "s3:GetBucketCORS",
+           "s3:GetAccelerateConfiguration", "s3:GetBucketLogging",
+           "s3:GetBucketObjectLockConfiguration", "s3:GetReplicationConfiguration",
+           "s3:GetBucketRequestPayment"
+         ],
+         "Resource": "arn:aws:s3:::photo-uploader-cfn-templates-047719661196-us-east-1"
+       },
+       {
+         "Sid": "GitHubOidcProvider",
+         "Effect": "Allow",
+         "Action": [
+           "iam:CreateOpenIDConnectProvider", "iam:DeleteOpenIDConnectProvider",
+           "iam:GetOpenIDConnectProvider", "iam:UpdateOpenIDConnectProviderThumbprint",
+           "iam:TagOpenIDConnectProvider", "iam:UntagOpenIDConnectProvider",
+           "iam:ListOpenIDConnectProviderTags"
+         ],
+         "Resource": "arn:aws:iam::047719661196:oidc-provider/token.actions.githubusercontent.com"
+       },
+       {
+         "Sid": "GhaRolesManage",
+         "Effect": "Allow",
+         "Action": [
+           "iam:CreateRole", "iam:DeleteRole", "iam:GetRole", "iam:UpdateRole",
+           "iam:UpdateAssumeRolePolicy", "iam:UpdateRoleDescription",
+           "iam:PutRolePolicy", "iam:GetRolePolicy", "iam:DeleteRolePolicy",
+           "iam:ListRolePolicies", "iam:TagRole", "iam:UntagRole", "iam:ListRoleTags"
+         ],
+         "Resource": [
+           "arn:aws:iam::047719661196:role/photo-uploader-gha-infra-packaging-role",
+           "arn:aws:iam::047719661196:role/photo-uploader-gha-ecr-push-role"
+         ]
+       },
+       {
+         "Sid": "EcrRepoManage",
+         "Effect": "Allow",
+         "Action": [
+           "ecr:CreateRepository", "ecr:DeleteRepository", "ecr:DescribeRepositories",
+           "ecr:PutLifecyclePolicy", "ecr:GetLifecyclePolicy", "ecr:DeleteLifecyclePolicy",
+           "ecr:PutImageTagMutability", "ecr:PutImageScanningConfiguration",
+           "ecr:TagResource", "ecr:UntagResource", "ecr:ListTagsForResource"
+         ],
+         "Resource": "arn:aws:ecr:us-east-1:047719661196:repository/photo-uploader-app"
+       }
+     ]
+   }
+   ```
+   Neither role uses `ManagedPolicyArns` (both are inline `Policies:`
+   only) and neither S3 nor ECR use a customer KMS key here, which is why
+   `iam:Attach/DetachRolePolicy` and `kms:*` are both absent above — add
+   them back if the template ever changes to use either.
+2. **CloudFormation → Stacks → Create stack → With Git sync.** Connect to
+   `1MuhireDavid/photo-uploader-infra`, branch `main`, deployment file
+   `bootstrap/deployment-file.yaml` (a separate Git sync stack from the
+   root one, which uses `cfn/deployment-file.yaml`).
+3. When prompted for the stack execution role, choose **"Use an existing
+   service role"** and pick the role from step 1. The Git sync *service*
+   role itself (the one that talks to GitHub) can stay auto-generated.
+4. Acknowledge `CAPABILITY_NAMED_IAM` — required since this template
+   creates two named IAM roles.
+5. Merge the confirmation PR Git sync opens to kick off the first
+   sync-managed update.
 
 ## Full setup order
 
