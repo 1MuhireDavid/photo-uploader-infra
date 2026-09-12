@@ -9,10 +9,6 @@ parameters:
   AllowedGitRef: refs/heads/main
   InfraPackagingWorkflowFile: package-templates.yml
   AppBuildWorkflowFile: build-and-push.yml
-
-  # "false" -- the token.actions.githubusercontent.com OIDC provider
-  # already exists in this account. Only set "true" if IAM > Identity
-  # providers ever shows none registered for GitHub.
   CreateOidcProvider: "false"
 
 tags:
