@@ -76,9 +76,15 @@ Parameters:
   TestListenerAllowedCidr:
     Type: String
     Default: 0.0.0.0/0
-  DeploymentReadyWaitMinutes:
-    Type: Number
-    Default: 30
+  DeploymentConfigName:
+    Type: String
+    Default: CodeDeployDefault.ECSCanary10Percent5Minutes
+    AllowedValues:
+      - CodeDeployDefault.ECSAllAtOnce
+      - CodeDeployDefault.ECSCanary10Percent5Minutes
+      - CodeDeployDefault.ECSCanary10Percent15Minutes
+      - CodeDeployDefault.ECSLinear10PercentEvery1Minutes
+      - CodeDeployDefault.ECSLinear10PercentEvery3Minutes
   InitialImageTag:
     Type: String
     Default: latest
@@ -256,7 +262,7 @@ Resources:
         ServiceName: !GetAtt AlbEcsStack.Outputs.ServiceName
         ProdListenerArn: !GetAtt AlbEcsStack.Outputs.ProdListenerArn
         TestListenerArn: !GetAtt AlbEcsStack.Outputs.TestListenerArn
-        DeploymentReadyWaitMinutes: !Ref DeploymentReadyWaitMinutes
+        DeploymentConfigName: !Ref DeploymentConfigName
         BlueTargetGroupName: !GetAtt AlbEcsStack.Outputs.BlueTargetGroupName
         GreenTargetGroupName: !GetAtt AlbEcsStack.Outputs.GreenTargetGroupName
         DeployedImageTag: !Ref DeployedImageTag
