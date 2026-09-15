@@ -1,0 +1,421 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Parameters:
+  ProjectName:
+    Type: String
+    Default: photo-uploader
+  VpcCIDR:
+    Type: String
+    Default: 10.30.0.0/16
+  PublicSubnet1CIDR:
+    Type: String
+    Default: 10.30.0.0/24
+  PublicSubnet2CIDR:
+    Type: String
+    Default: 10.30.1.0/24
+  PrivateSubnet1CIDR:
+    Type: String
+    Default: 10.30.10.0/24
+  PrivateSubnet2CIDR:
+    Type: String
+    Default: 10.30.11.0/24
+  CloudFrontPriceClass:
+    Type: String
+    Default: PriceClass_200
+    AllowedValues:
+    - PriceClass_100
+    - PriceClass_200
+    - PriceClass_All
+  DbInstanceClass:
+    Type: String
+    Default: db.t3.micro
+  DbAllocatedStorage:
+    Type: Number
+    Default: 20
+  DbName:
+    Type: String
+    Default: photogallery
+  DbMasterUsername:
+    Type: String
+    Default: photoapp
+  DbMultiAZ:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+    - 'true'
+    - 'false'
+  DbPort:
+    Type: Number
+    Default: 5432
+  ContainerPort:
+    Type: Number
+    Default: 8080
+  TestListenerPort:
+    Type: Number
+    Default: 8081
+  TestListenerAllowedCidr:
+    Type: String
+    Default: 0.0.0.0/0
+  InitialImageTag:
+    Type: String
+    Default: latest
+  TaskCpu:
+    Type: String
+    Default: '256'
+  TaskMemory:
+    Type: String
+    Default: '512'
+  MinTasks:
+    Type: Number
+    Default: 1
+  DesiredTasks:
+    Type: Number
+    Default: 1
+  MaxTasks:
+    Type: Number
+    Default: 4
+  CpuTargetPercent:
+    Type: Number
+    Default: 60
+  AppOwnerName:
+    Type: String
+  LabName:
+    Type: String
+    Default: Photo Uploader Lab
+  DeployedImageTag:
+    Type: String
+    Default: latest
+Resources:
+  NetworkStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: 
+        https://s3.us-east-1.amazonaws.com/photo-uploader-cfn-templates-047719661196-us-east-1/templates/b0912a7b98105c332776120b46273389.template
+      Parameters:
+        ProjectName:
+          Ref: ProjectName
+        VpcCIDR:
+          Ref: VpcCIDR
+        PublicSubnet1CIDR:
+          Ref: PublicSubnet1CIDR
+        PublicSubnet2CIDR:
+          Ref: PublicSubnet2CIDR
+        PrivateSubnet1CIDR:
+          Ref: PrivateSubnet1CIDR
+        PrivateSubnet2CIDR:
+          Ref: PrivateSubnet2CIDR
+      Tags:
+      - Key: Project
+        Value:
+          Ref: ProjectName
+  SecurityStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: 
+        https://s3.us-east-1.amazonaws.com/photo-uploader-cfn-templates-047719661196-us-east-1/templates/82462a8a552d67180dd0fb95fba67bd4.template
+      Parameters:
+        ProjectName:
+          Ref: ProjectName
+        VpcId:
+          Fn::GetAtt:
+          - NetworkStack
+          - Outputs.VpcId
+        VpcCidr:
+          Fn::GetAtt:
+          - NetworkStack
+          - Outputs.VpcCidr
+        ContainerPort:
+          Ref: ContainerPort
+        DbPort:
+          Ref: DbPort
+        TestListenerPort:
+          Ref: TestListenerPort
+        TestListenerAllowedCidr:
+          Ref: TestListenerAllowedCidr
+      Tags:
+      - Key: Project
+        Value:
+          Ref: ProjectName
+  BackingServicesStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: 
+        https://s3.us-east-1.amazonaws.com/photo-uploader-cfn-templates-047719661196-us-east-1/templates/170f0762b8da224f1250ba61ba81cc69.template
+      Parameters:
+        ProjectName:
+          Ref: ProjectName
+        VpcId:
+          Fn::GetAtt:
+          - NetworkStack
+          - Outputs.VpcId
+        PrivateSubnetIds:
+          Fn::GetAtt:
+          - NetworkStack
+          - Outputs.PrivateSubnetIds
+        VpcEndpointSecurityGroupId:
+          Fn::GetAtt:
+          - SecurityStack
+          - Outputs.VpcEndpointSecurityGroupId
+        PrivateRouteTableIds:
+          Fn::GetAtt:
+          - NetworkStack
+          - Outputs.PrivateRouteTableIds
+      Tags:
+      - Key: Project
+        Value:
+          Ref: ProjectName
+  StorageCdnStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: 
+        https://s3.us-east-1.amazonaws.com/photo-uploader-cfn-templates-047719661196-us-east-1/templates/429f105151cfb29034b4d471a8b6c65d.template
+      Parameters:
+        ProjectName:
+          Ref: ProjectName
+        CloudFrontPriceClass:
+          Ref: CloudFrontPriceClass
+      Tags:
+      - Key: Project
+        Value:
+          Ref: ProjectName
+  DatabaseStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: 
+        https://s3.us-east-1.amazonaws.com/photo-uploader-cfn-templates-047719661196-us-east-1/templates/5857503c935698d6e9efb3365a33a24e.template
+      Parameters:
+        ProjectName:
+          Ref: ProjectName
+        PrivateSubnetIds:
+          Fn::GetAtt:
+          - NetworkStack
+          - Outputs.PrivateSubnetIds
+        RdsSecurityGroupId:
+          Fn::GetAtt:
+          - SecurityStack
+          - Outputs.RdsSecurityGroupId
+        DbInstanceClass:
+          Ref: DbInstanceClass
+        DbAllocatedStorage:
+          Ref: DbAllocatedStorage
+        DbName:
+          Ref: DbName
+        DbMasterUsername:
+          Ref: DbMasterUsername
+        DbMultiAZ:
+          Ref: DbMultiAZ
+        DbPort:
+          Ref: DbPort
+      Tags:
+      - Key: Project
+        Value:
+          Ref: ProjectName
+  AlbEcsStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: 
+        https://s3.us-east-1.amazonaws.com/photo-uploader-cfn-templates-047719661196-us-east-1/templates/47066fd1e3dac932af627b5f61a7af14.template
+      Parameters:
+        ProjectName:
+          Ref: ProjectName
+        VpcId:
+          Fn::GetAtt:
+          - NetworkStack
+          - Outputs.VpcId
+        PublicSubnetIds:
+          Fn::GetAtt:
+          - NetworkStack
+          - Outputs.PublicSubnetIds
+        PrivateSubnetIds:
+          Fn::GetAtt:
+          - NetworkStack
+          - Outputs.PrivateSubnetIds
+        AlbSecurityGroupId:
+          Fn::GetAtt:
+          - SecurityStack
+          - Outputs.AlbSecurityGroupId
+        EcsTaskSecurityGroupId:
+          Fn::GetAtt:
+          - SecurityStack
+          - Outputs.EcsTaskSecurityGroupId
+        ContainerPort:
+          Ref: ContainerPort
+        TestListenerPort:
+          Ref: TestListenerPort
+        RepositoryUri:
+          Fn::ImportValue:
+            Fn::Sub: ${ProjectName}-ecr-repository-uri
+        InitialImageTag:
+          Ref: InitialImageTag
+        TaskCpu:
+          Ref: TaskCpu
+        TaskMemory:
+          Ref: TaskMemory
+        MinTasks:
+          Ref: MinTasks
+        DesiredTasks:
+          Ref: DesiredTasks
+        MaxTasks:
+          Ref: MaxTasks
+        CpuTargetPercent:
+          Ref: CpuTargetPercent
+        AppOwnerName:
+          Ref: AppOwnerName
+        LabName:
+          Ref: LabName
+        PhotosBucketName:
+          Fn::GetAtt:
+          - StorageCdnStack
+          - Outputs.PhotosBucketName
+        PhotosBucketArn:
+          Fn::GetAtt:
+          - StorageCdnStack
+          - Outputs.PhotosBucketArn
+        CloudFrontDomainName:
+          Fn::GetAtt:
+          - StorageCdnStack
+          - Outputs.CloudFrontDomainName
+        DbEndpointAddress:
+          Fn::GetAtt:
+          - DatabaseStack
+          - Outputs.DbEndpointAddress
+        DbPort:
+          Fn::GetAtt:
+          - DatabaseStack
+          - Outputs.DbPort
+        DbName:
+          Fn::GetAtt:
+          - DatabaseStack
+          - Outputs.DbName
+        DbSecretArn:
+          Fn::GetAtt:
+          - DatabaseStack
+          - Outputs.DbSecretArn
+      Tags:
+      - Key: Project
+        Value:
+          Ref: ProjectName
+  CicdPipelineStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: 
+        https://s3.us-east-1.amazonaws.com/photo-uploader-cfn-templates-047719661196-us-east-1/templates/ab85ab4510b475ab9952926ff5ef3f2b.template
+      Parameters:
+        ProjectName:
+          Ref: ProjectName
+        EcrRepositoryName:
+          Fn::ImportValue:
+            Fn::Sub: ${ProjectName}-ecr-repository-name
+        EcrRepositoryArn:
+          Fn::ImportValue:
+            Fn::Sub: ${ProjectName}-ecr-repository-arn
+        ClusterName:
+          Fn::GetAtt:
+          - AlbEcsStack
+          - Outputs.ClusterName
+        ServiceName:
+          Fn::GetAtt:
+          - AlbEcsStack
+          - Outputs.ServiceName
+        ProdListenerArn:
+          Fn::GetAtt:
+          - AlbEcsStack
+          - Outputs.ProdListenerArn
+        TestListenerArn:
+          Fn::GetAtt:
+          - AlbEcsStack
+          - Outputs.TestListenerArn
+        BlueTargetGroupName:
+          Fn::GetAtt:
+          - AlbEcsStack
+          - Outputs.BlueTargetGroupName
+        GreenTargetGroupName:
+          Fn::GetAtt:
+          - AlbEcsStack
+          - Outputs.GreenTargetGroupName
+        DeployedImageTag:
+          Ref: DeployedImageTag
+      Tags:
+      - Key: Project
+        Value:
+          Ref: ProjectName
+Outputs:
+  AlbEndpoint:
+    Value:
+      Fn::Sub: http://${AlbEcsStack.Outputs.AlbDnsName}
+  AlbTestEndpoint:
+    Value:
+      Fn::Sub: http://${AlbEcsStack.Outputs.AlbDnsName}:${TestListenerPort}
+  EcrRepositoryUri:
+    Value:
+      Fn::ImportValue:
+        Fn::Sub: ${ProjectName}-ecr-repository-uri
+  EcsClusterName:
+    Value:
+      Fn::GetAtt:
+      - AlbEcsStack
+      - Outputs.ClusterName
+  EcsServiceName:
+    Value:
+      Fn::GetAtt:
+      - AlbEcsStack
+      - Outputs.ServiceName
+  PipelineName:
+    Value:
+      Fn::GetAtt:
+      - CicdPipelineStack
+      - Outputs.PipelineName
+  ArtifactBucketName:
+    Value:
+      Fn::GetAtt:
+      - CicdPipelineStack
+      - Outputs.ArtifactBucketName
+  VpcId:
+    Value:
+      Fn::GetAtt:
+      - NetworkStack
+      - Outputs.VpcId
+  PhotosBucketName:
+    Value:
+      Fn::GetAtt:
+      - StorageCdnStack
+      - Outputs.PhotosBucketName
+  CloudFrontDomainName:
+    Value:
+      Fn::GetAtt:
+      - StorageCdnStack
+      - Outputs.CloudFrontDomainName
+  DbEndpointAddress:
+    Value:
+      Fn::GetAtt:
+      - DatabaseStack
+      - Outputs.DbEndpointAddress
+  DbSecretArn:
+    Value:
+      Fn::GetAtt:
+      - DatabaseStack
+      - Outputs.DbSecretArn
+  DbPort:
+    Value:
+      Fn::GetAtt:
+      - DatabaseStack
+      - Outputs.DbPort
+  DbName:
+    Value:
+      Fn::GetAtt:
+      - DatabaseStack
+      - Outputs.DbName
+  TaskExecutionRoleArn:
+    Value:
+      Fn::GetAtt:
+      - AlbEcsStack
+      - Outputs.TaskExecutionRoleArn
+  TaskRoleArn:
+    Value:
+      Fn::GetAtt:
+      - AlbEcsStack
+      - Outputs.TaskRoleArn
+  LogGroupName:
+    Value:
+      Fn::GetAtt:
+      - AlbEcsStack
+      - Outputs.LogGroupName
