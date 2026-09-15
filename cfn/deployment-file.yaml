@@ -21,25 +21,24 @@
 # IAM-capability acknowledgment are both set in the console when
 # configuring Git sync for this stack, not in this file.
 
-template-file-path: cfn/root.yaml
+# Points at the PACKAGED template, not cfn/root.yaml. The packaging
+# workflow (.github/workflows/package-templates.yml) runs
+# `aws cloudformation package` over cfn/root.yaml, uploads every file
+# under cfn/nested-templates/ to the templates bucket under a
+# content-addressed key, rewrites each TemplateURL to the resulting S3
+# URL, and commits the result here. A nested template's URL therefore
+# only changes when its content changes -- which is exactly when
+# CloudFormation should re-fetch and re-diff that nested stack.
+template-file-path: cfn/packaged/root.yaml
 
 parameters:
   # Must match the ProjectName the bootstrap stack (bootstrap/00-bootstrap.yaml)
-  # was deployed with -- root.yaml resolves TemplatesBucketName and the
-  # EcrRepository* values from bootstrap's CloudFormation Exports (named
-  # "${ProjectName}-templates-bucket" etc.) automatically, via
-  # Fn::ImportValue. There's nothing to copy-paste for those here anymore;
-  # a ProjectName mismatch between the two stacks is the only way this
-  # wiring breaks (fails stack creation with "No export named ... found").
+  # was deployed with -- root.yaml resolves the EcrRepository* values from
+  # bootstrap's CloudFormation Exports (named "${ProjectName}-..."), via
+  # Fn::ImportValue. There's nothing to copy-paste for those here; a
+  # ProjectName mismatch between the two stacks is the only way this wiring
+  # breaks (fails stack creation with "No export named ... found").
   ProjectName: photo-uploader
-
-  NetworkTemplateHash: aa9b926f132f
-  SecurityTemplateHash: 7efcd6045ff2
-  VpcEndpointsTemplateHash: fb0162d3dfe0
-  StorageCdnTemplateHash: 2ac523cc24ed
-  DatabaseTemplateHash: 679dd90c43df
-  AlbEcsTemplateHash: 81766fbe97ff
-  CicdPipelineTemplateHash: db5cd80b4cbc
 
   VpcCIDR: 10.30.0.0/16
   PublicSubnet1CIDR: 10.30.0.0/24

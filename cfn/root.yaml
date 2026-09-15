@@ -5,22 +5,6 @@ Parameters:
     Type: String
     Default: photo-uploader
 
-  NetworkTemplateHash:
-    Type: String
-  SecurityTemplateHash:
-    Type: String
-  VpcEndpointsTemplateHash:
-    Type: String
-  StorageCdnTemplateHash:
-    Type: String
-  DatabaseTemplateHash:
-    Type: String
-  AlbEcsTemplateHash:
-    Type: String
-  CicdPipelineTemplateHash:
-    Type: String
-
-
   VpcCIDR:
     Type: String
     Default: 10.30.0.0/16
@@ -112,10 +96,7 @@ Resources:
   NetworkStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: !Sub
-        - "https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/templates/01-network-${NetworkTemplateHash}.yaml"
-        - TemplatesBucket: !ImportValue
-            Fn::Sub: "${ProjectName}-templates-bucket"
+      TemplateURL: nested-templates/01-network.yaml
       Parameters:
         ProjectName: !Ref ProjectName
         VpcCIDR: !Ref VpcCIDR
@@ -130,10 +111,7 @@ Resources:
   SecurityStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: !Sub
-        - "https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/templates/02-security-${SecurityTemplateHash}.yaml"
-        - TemplatesBucket: !ImportValue
-            Fn::Sub: "${ProjectName}-templates-bucket"
+      TemplateURL: nested-templates/02-security.yaml
       Parameters:
         ProjectName: !Ref ProjectName
         VpcId: !GetAtt NetworkStack.Outputs.VpcId
@@ -149,10 +127,7 @@ Resources:
   BackingServicesStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: !Sub
-        - "https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/templates/03-vpc-endpoints-${VpcEndpointsTemplateHash}.yaml"
-        - TemplatesBucket: !ImportValue
-            Fn::Sub: "${ProjectName}-templates-bucket"
+      TemplateURL: nested-templates/03-vpc-endpoints.yaml
       Parameters:
         ProjectName: !Ref ProjectName
         VpcId: !GetAtt NetworkStack.Outputs.VpcId
@@ -166,10 +141,7 @@ Resources:
   StorageCdnStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: !Sub
-        - "https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/templates/04-storage-cdn-${StorageCdnTemplateHash}.yaml"
-        - TemplatesBucket: !ImportValue
-            Fn::Sub: "${ProjectName}-templates-bucket"
+      TemplateURL: nested-templates/04-storage-cdn.yaml
       Parameters:
         ProjectName: !Ref ProjectName
         CloudFrontPriceClass: !Ref CloudFrontPriceClass
@@ -180,10 +152,7 @@ Resources:
   DatabaseStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: !Sub
-        - "https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/templates/05-database-${DatabaseTemplateHash}.yaml"
-        - TemplatesBucket: !ImportValue
-            Fn::Sub: "${ProjectName}-templates-bucket"
+      TemplateURL: nested-templates/05-database.yaml
       Parameters:
         ProjectName: !Ref ProjectName
         PrivateSubnetIds: !GetAtt NetworkStack.Outputs.PrivateSubnetIds
@@ -201,10 +170,7 @@ Resources:
   AlbEcsStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: !Sub
-        - "https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/templates/06-alb-ecs-${AlbEcsTemplateHash}.yaml"
-        - TemplatesBucket: !ImportValue
-            Fn::Sub: "${ProjectName}-templates-bucket"
+      TemplateURL: nested-templates/06-alb-ecs.yaml
       Parameters:
         ProjectName: !Ref ProjectName
         VpcId: !GetAtt NetworkStack.Outputs.VpcId
@@ -239,10 +205,7 @@ Resources:
   CicdPipelineStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: !Sub
-        - "https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/templates/07-cicd-pipeline-${CicdPipelineTemplateHash}.yaml"
-        - TemplatesBucket: !ImportValue
-            Fn::Sub: "${ProjectName}-templates-bucket"
+      TemplateURL: nested-templates/07-cicd-pipeline.yaml
       Parameters:
         ProjectName: !Ref ProjectName
         EcrRepositoryName: !ImportValue
@@ -286,3 +249,13 @@ Outputs:
     Value: !GetAtt DatabaseStack.Outputs.DbEndpointAddress
   DbSecretArn:
     Value: !GetAtt DatabaseStack.Outputs.DbSecretArn
+  DbPort:
+    Value: !GetAtt DatabaseStack.Outputs.DbPort
+  DbName:
+    Value: !GetAtt DatabaseStack.Outputs.DbName
+  TaskExecutionRoleArn:
+    Value: !GetAtt AlbEcsStack.Outputs.TaskExecutionRoleArn
+  TaskRoleArn:
+    Value: !GetAtt AlbEcsStack.Outputs.TaskRoleArn
+  LogGroupName:
+    Value: !GetAtt AlbEcsStack.Outputs.LogGroupName
