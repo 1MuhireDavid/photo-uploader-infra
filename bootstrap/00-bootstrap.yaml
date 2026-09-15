@@ -160,12 +160,12 @@ Resources:
             "rules": [
               {
                 "rulePriority": 1,
-                "description": "Keep only the last 3 sha-tagged images",
+                "description": "Expire untagged images older than 14 days",
                 "selection": {
-                  "tagStatus": "tagged",
-                  "tagPrefixList": ["sha-"],
-                  "countType": "imageCountMoreThan",
-                  "countNumber": 3
+                  "tagStatus": "untagged",
+                  "countType": "sinceImagePushed",
+                  "countUnit": "days",
+                  "countNumber": 14
                 },
                 "action": { "type": "expire" }
               }
