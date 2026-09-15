@@ -1,18 +1,3 @@
 template-file-path: bootstrap/00-bootstrap.yaml
-
-parameters:
-  ProjectName: photo-uploader
-
-  GitHubOrg: 1MuhireDavid
-  InfraRepoName: photo-uploader-infra
-  AppRepoName: photo-uploader-app
-  AllowedGitRef: refs/heads/main
-  InfraPackagingWorkflowFile: package-templates.yml
-  AppBuildWorkflowFile: build-and-push.yml
-  CreateOidcProvider: "false"
-
-tags:
-  Project: photo-uploader
-  ManagedBy: CloudFormation-GitSync
-  Environment: lab
-  Owner: DAVID MUHIRE
+parameters: {}
+tags: {}
