@@ -63,7 +63,7 @@ Resources:
         - IpProtocol: tcp
           FromPort: 443
           ToPort: 443
-          SourceSecurityGroupId: !Ref VpcCidr  #extend to vpc cidr
+          CidrIp: !Ref VpcCidr  # any workload in the VPC, not just ECS tasks
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-vpce-sg"
