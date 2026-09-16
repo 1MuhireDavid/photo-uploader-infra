@@ -42,10 +42,10 @@ Conditions:
 
 Resources:
 
-  TemplatesBucket:
+  TemplatesBucket:    #hold actual YAML content of every nested template
     Type: AWS::S3::Bucket
     DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    UpdateReplacePolicy: Retain    #never destory template root is running form
     Properties:
       BucketName: !Sub "${ProjectName}-cfn-templates-${AWS::AccountId}-${AWS::Region}"
       VersioningConfiguration:
@@ -64,7 +64,7 @@ Resources:
           - Id: ExpireOldTemplateVersions
             Status: Enabled
             NoncurrentVersionExpiration:
-              NoncurrentDays: 30
+              NoncurrentDays: 30            #old non-current versions expire after 30 days.
       Tags:
         - Key: Project
           Value: !Ref ProjectName
@@ -78,7 +78,7 @@ Resources:
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
-          - Sid: DenyInsecureTransport
+          - Sid: DenyInsecureTransport   #req should be sent over https
             Effect: Deny
             Principal: "*"
             Action: "s3:*"
@@ -88,14 +88,14 @@ Resources:
             Condition:
               Bool:
                 "aws:SecureTransport": "false"
-          - Sid: AllowAccountPrincipalsReadTemplates
+          - Sid: AllowAccountPrincipalsReadTemplates    #cfn read them using gitsync role whose exact name isn't known in advance
             Effect: Allow
             Principal:
               AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
             Action: "s3:GetObject"
             Resource: !Sub "${TemplatesBucket.Arn}/templates/*"
 
-  GitHubOidcProvider:
+  GitHubOidcProvider:   #gha prove who it is, without a stored password
     Type: AWS::IAM::OIDCProvider
     Condition: ShouldCreateOidcProvider
     Properties:
@@ -118,7 +118,7 @@ Resources:
               Federated: !Sub "arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com"
             Action: "sts:AssumeRoleWithWebIdentity"
             Condition:
-              StringEquals:
+              StringEquals:   #4 claims, what fits is the one that can use it
                 "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
                 "token.actions.githubusercontent.com:repository": !Sub "${GitHubOrg}/${InfraRepoName}"
                 "token.actions.githubusercontent.com:ref": !Ref AllowedGitRef
@@ -144,7 +144,7 @@ Resources:
           Value: !Ref ProjectName
 
   AppRepository:
-    Type: AWS::ECR::Repository
+    Type: AWS::ECR::Repository    #store app's container images
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
@@ -190,7 +190,7 @@ Resources:
               Federated: !Sub "arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com"
             Action: "sts:AssumeRoleWithWebIdentity"
             Condition:
-              StringEquals:
+              StringEquals:  #scoped to the app 
                 "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
                 "token.actions.githubusercontent.com:repository": !Sub "${GitHubOrg}/${AppRepoName}"
                 "token.actions.githubusercontent.com:ref": !Ref AllowedGitRef

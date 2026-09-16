@@ -73,7 +73,7 @@ Parameters:
 Resources:
 
   ApplicationLoadBalancer:
-    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer  #internet facing compute resource 
     Properties:
       Name: !Sub "${ProjectName}-alb"
       Scheme: internet-facing
@@ -102,7 +102,7 @@ Resources:
       TargetGroupAttributes:
         - Key: deregistration_delay.timeout_seconds
           Value: "30"
-
+# identical containers to send traffic to
   GreenTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
@@ -128,7 +128,7 @@ Resources:
       Protocol: HTTP
       DefaultActions:
         - Type: forward
-          TargetGroupArn: !Ref BlueTargetGroup
+          TargetGroupArn: !Ref BlueTargetGroup   #forward to blue TG initally 
 
   TestListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
@@ -143,7 +143,7 @@ Resources:
   EcsCluster:
     Type: AWS::ECS::Cluster
     Properties:
-      ClusterName: !Sub "${ProjectName}-cluster"
+      ClusterName: !Sub "${ProjectName}-cluster"  #logical group of the runing tasks
       ClusterSettings:
         - Name: containerInsights
           Value: enabled
@@ -152,7 +152,7 @@ Resources:
           Value: !Sub "${ProjectName}-cluster"
 
   AppLogGroup:
-    Type: AWS::Logs::LogGroup
+    Type: AWS::Logs::LogGroup  #CloudWatch Log destination
     Properties:
       LogGroupName: !Sub "/ecs/${ProjectName}-app"
       RetentionInDays: 14
@@ -160,7 +160,7 @@ Resources:
   TaskExecutionRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "${ProjectName}-task-execution-role"
+      RoleName: !Sub "${ProjectName}-task-execution-role"  #ECS use to start task
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -195,7 +195,7 @@ Resources:
                 Resource: !Ref DbSecretArn
 
   TaskRole:
-    Type: AWS::IAM::Role
+    Type: AWS::IAM::Role   #the role running application code gets
     Properties:
       RoleName: !Sub "${ProjectName}-task-role"
       AssumeRolePolicyDocument:
@@ -217,7 +217,7 @@ Resources:
                 Resource: !Sub "${PhotosBucketArn}/*"
 
   TaskDefinition:
-    Type: AWS::ECS::TaskDefinition
+    Type: AWS::ECS::TaskDefinition  #blueprint for a container
     Properties:
       Family: !Sub "${ProjectName}-app"
       Cpu: !Ref TaskCpu
@@ -234,7 +234,7 @@ Resources:
           PortMappings:
             - ContainerPort: !Ref ContainerPort
               Protocol: tcp
-          Environment:
+          Environment: #variables
             - Name: APP_OWNER_NAME
               Value: !Ref AppOwnerName
             - Name: LAB_NAME
@@ -264,7 +264,7 @@ Resources:
               awslogs-stream-prefix: app
 
   EcsService:
-    Type: AWS::ECS::Service
+    Type: AWS::ECS::Service  #keep the desired n0 of Fargate tasks running 
     Properties:
       ServiceName: !Sub "${ProjectName}-service"
       Cluster: !Ref EcsCluster
@@ -272,7 +272,7 @@ Resources:
       DesiredCount: !Ref DesiredTasks
       LaunchType: FARGATE
       DeploymentController:
-        Type: CODE_DEPLOY
+        Type: CODE_DEPLOY  #cfn steps back then codedeploy do all future task def
       NetworkConfiguration:
         AwsvpcConfiguration:
           AssignPublicIp: DISABLED
@@ -287,7 +287,7 @@ Resources:
     DependsOn: ProdListener
 
   ScalableTarget:
-    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Type: AWS::ApplicationAutoScaling::ScalableTarget  #registers the ECS services desired count as AS may resize btn min -max tasks
     Properties:
       ServiceNamespace: ecs
       ResourceId: !Sub "service/${EcsCluster}/${EcsService.Name}"
@@ -299,7 +299,7 @@ Resources:
     Type: AWS::ApplicationAutoScaling::ScalingPolicy
     Properties:
       PolicyName: !Sub "${ProjectName}-cpu-target-tracking"
-      PolicyType: TargetTrackingScaling
+      PolicyType: TargetTrackingScaling  #auto remove/add tasks to keep AVg CPU near 60%
       ScalingTargetId: !Ref ScalableTarget
       TargetTrackingScalingPolicyConfiguration:
         PredefinedMetricSpecification:

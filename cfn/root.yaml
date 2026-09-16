@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-
+# splitting by concern 
 Parameters:
   ProjectName:
     Type: String
@@ -20,6 +20,12 @@ Parameters:
   PrivateSubnet2CIDR:
     Type: String
     Default: 10.30.11.0/24
+  PrivateDbSubnet1CIDR:
+    Type: String
+    Default: 10.30.20.0/24
+  PrivateDbSubnet2CIDR:
+    Type: String
+    Default: 10.30.21.0/24
 
   CloudFrontPriceClass:
     Type: String
@@ -105,6 +111,8 @@ Resources:
         PublicSubnet2CIDR: !Ref PublicSubnet2CIDR
         PrivateSubnet1CIDR: !Ref PrivateSubnet1CIDR
         PrivateSubnet2CIDR: !Ref PrivateSubnet2CIDR
+        PrivateDbSubnet1CIDR: !Ref PrivateDbSubnet1CIDR
+        PrivateDbSubnet2CIDR: !Ref PrivateDbSubnet2CIDR
       Tags:
         - Key: Project
           Value: !Ref ProjectName
@@ -156,7 +164,7 @@ Resources:
       TemplateURL: nested-templates/05-database.yaml
       Parameters:
         ProjectName: !Ref ProjectName
-        PrivateSubnetIds: !GetAtt NetworkStack.Outputs.PrivateSubnetIds
+        DbSubnetIds: !GetAtt NetworkStack.Outputs.PrivateDbSubnetIds
         RdsSecurityGroupId: !GetAtt SecurityStack.Outputs.RdsSecurityGroupId
         DbInstanceClass: !Ref DbInstanceClass
         DbAllocatedStorage: !Ref DbAllocatedStorage

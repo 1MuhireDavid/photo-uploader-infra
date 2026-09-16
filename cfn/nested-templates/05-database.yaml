@@ -3,7 +3,7 @@ AWSTemplateFormatVersion: "2010-09-09"
 Parameters:
   ProjectName:
     Type: String
-  PrivateSubnetIds:
+  DbSubnetIds:
     Type: List<AWS::EC2::Subnet::Id>
   RdsSecurityGroupId:
     Type: AWS::EC2::SecurityGroup::Id
@@ -30,12 +30,12 @@ Parameters:
     Default: 5432
 
 Resources:
-
+# managed relational db, holding one small table
   DbSubnetGroup:
-    Type: AWS::RDS::DBSubnetGroup
+    Type: AWS::RDS::DBSubnetGroup  #tell RDSSubnet it's allowed to place the db instance in
     Properties:
-      DBSubnetGroupDescription: !Sub "${ProjectName} private subnets (2 AZ) for RDS"
-      SubnetIds: !Ref PrivateSubnetIds
+      DBSubnetGroupDescription: !Sub "${ProjectName} private DB subnets (2 AZ) for RDS"
+      SubnetIds: !Ref DbSubnetIds
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-db-subnet-group"
@@ -60,7 +60,7 @@ Resources:
       MultiAZ: !Ref DbMultiAZ
       PubliclyAccessible: false
       BackupRetentionPeriod: 1
-      AutoMinorVersionUpgrade: true
+      AutoMinorVersionUpgrade: true #minial backups, automatic patching
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-db"

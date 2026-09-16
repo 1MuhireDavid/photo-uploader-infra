@@ -14,7 +14,7 @@ Parameters:
 Resources:
 
   PhotosBucket:
-    Type: AWS::S3::Bucket
+    Type: AWS::S3::Bucket   #all uploaded photos
     Properties:
       BucketName: !Sub "${ProjectName}-photos-${AWS::AccountId}-${AWS::Region}"
       VersioningConfiguration:
@@ -33,7 +33,7 @@ Resources:
           - Id: AbortIncompleteMultipartUploads
             Status: Enabled
             AbortIncompleteMultipartUpload:
-              DaysAfterInitiation: 7
+              DaysAfterInitiation: 7  #days
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-photos"
@@ -45,7 +45,7 @@ Resources:
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
-          - Sid: DenyInsecureTransport
+          - Sid: DenyInsecureTransport   #block any thing not over HTTPS
             Effect: Deny
             Principal: "*"
             Action: "s3:*"
@@ -55,7 +55,7 @@ Resources:
             Condition:
               Bool:
                 "aws:SecureTransport": "false"
-          - Sid: AllowCloudFrontReadViaOAC
+          - Sid: AllowCloudFrontReadViaOAC   #allow read from CDN
             Effect: Allow
             Principal:
               Service: cloudfront.amazonaws.com
@@ -66,16 +66,16 @@ Resources:
                 "AWS:SourceArn": !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${PhotosDistribution.Id}"
 
   PhotosOriginAccessControl:
-    Type: AWS::CloudFront::OriginAccessControl
+    Type: AWS::CloudFront::OriginAccessControl   #sign req to s3 with SSigV4
     Properties:
       OriginAccessControlConfig:
         Name: !Sub "${ProjectName}-photos-oac"
         OriginAccessControlOriginType: s3
-        SigningBehavior: always
+        SigningBehavior: always  #verify the cdn
         SigningProtocol: sigv4
 
   PhotosDistribution:
-    Type: AWS::CloudFront::Distribution
+    Type: AWS::CloudFront::Distribution  #Image server nothing write thought it
     Properties:
       DistributionConfig:
         Comment: !Sub "${ProjectName} - photo images (private S3 origin via OAC)"
@@ -97,8 +97,8 @@ Resources:
           CachedMethods:
             - GET
             - HEAD
-          Compress: true
-          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+          Compress: true  # compress response
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6  #
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-photos-cdn"

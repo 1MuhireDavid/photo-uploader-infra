@@ -24,10 +24,18 @@ Parameters:
     Type: String
     Default: 10.30.11.0/24
 
+  PrivateDbSubnet1CIDR:
+    Type: String
+    Default: 10.30.20.0/24
+
+  PrivateDbSubnet2CIDR:
+    Type: String
+    Default: 10.30.21.0/24
+
 Resources:
 
   VPC:
-    Type: AWS::EC2::VPC
+    Type: AWS::EC2::VPC    #isolated network 
     Properties:
       CidrBlock: !Ref VpcCIDR
       EnableDnsSupport: true
@@ -36,14 +44,14 @@ Resources:
         - Key: Name
           Value: !Sub "${ProjectName}-vpc"
 
-  InternetGateway:
+  InternetGateway:    #door to the public internet
     Type: AWS::EC2::InternetGateway
     Properties:
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-igw"
 
-  AttachGateway:
+  AttachGateway:  
     Type: AWS::EC2::VPCGatewayAttachment
     Properties:
       VpcId: !Ref VPC
@@ -57,7 +65,7 @@ Resources:
         - 0
         - !GetAZs ""
       CidrBlock: !Ref PublicSubnet1CIDR
-      MapPublicIpOnLaunch: true
+      MapPublicIpOnLaunch: true    #auto assign Ip address
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-public-az1"
@@ -88,7 +96,7 @@ Resources:
     DependsOn: AttachGateway
     Properties:
       RouteTableId: !Ref PublicRouteTable
-      DestinationCidrBlock: 0.0.0.0/0
+      DestinationCidrBlock: 0.0.0.0/0     #anything not headed inside VPC, send to the IGW
       GatewayId: !Ref InternetGateway
 
   PublicSubnet1RTAssoc:
@@ -127,7 +135,7 @@ Resources:
         - Key: Name
           Value: !Sub "${ProjectName}-private-az2"
 
-  PrivateRouteTable1:
+  PrivateRouteTable1:  #carry implicy local VPC route, tasks needs reachs AWS over VPC endpoint 
     Type: AWS::EC2::RouteTable
     Properties:
       VpcId: !Ref VPC
@@ -155,6 +163,42 @@ Resources:
       SubnetId: !Ref PrivateSubnet2
       RouteTableId: !Ref PrivateRouteTable2
 
+  PrivateDbSubnet1:   #data tier, kept separate from the app subnets
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select
+        - 0
+        - !GetAZs ""
+      CidrBlock: !Ref PrivateDbSubnet1CIDR
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-private-db-az1"
+
+  PrivateDbSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select
+        - 1
+        - !GetAZs ""
+      CidrBlock: !Ref PrivateDbSubnet2CIDR
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-private-db-az2"
+
+  PrivateDbSubnet1RTAssoc:   #same per-AZ private route table, so still no route to the internet
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateDbSubnet1
+      RouteTableId: !Ref PrivateRouteTable1
+
+  PrivateDbSubnet2RTAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateDbSubnet2
+      RouteTableId: !Ref PrivateRouteTable2
+
 Outputs:
   VpcId:
     Value: !Ref VPC
@@ -168,11 +212,20 @@ Outputs:
     Value: !Ref PrivateSubnet1
   PrivateSubnet2Id:
     Value: !Ref PrivateSubnet2
+  PrivateDbSubnet1Id:
+    Value: !Ref PrivateDbSubnet1
+  PrivateDbSubnet2Id:
+    Value: !Ref PrivateDbSubnet2
   PrivateSubnetIds:
     Value: !Join
       - ","
       - - !Ref PrivateSubnet1
         - !Ref PrivateSubnet2
+  PrivateDbSubnetIds:
+    Value: !Join
+      - ","
+      - - !Ref PrivateDbSubnet1
+        - !Ref PrivateDbSubnet2
   PublicSubnetIds:
     Value: !Join
       - ","

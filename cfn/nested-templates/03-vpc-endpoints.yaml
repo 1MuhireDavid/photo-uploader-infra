@@ -14,8 +14,9 @@ Parameters:
 
 Resources:
 
+#Interface : create anNetwork Interface in each private subnet with a private IP, guarded by endpoint SG
   EcrApiEndpoint:
-    Type: AWS::EC2::VPCEndpoint
+    Type: AWS::EC2::VPCEndpoint   #2 ECS pull images from ECR without a route to the public internet
     Properties:
       VpcId: !Ref VpcId
       VpcEndpointType: Interface
@@ -43,7 +44,7 @@ Resources:
           Value: !Sub "${ProjectName}-vpce-ecr-dkr"
 
   LogsEndpoint:
-    Type: AWS::EC2::VPCEndpoint
+    Type: AWS::EC2::VPCEndpoint   #ship logs -> cloudWAtch privately
     Properties:
       VpcId: !Ref VpcId
       VpcEndpointType: Interface
@@ -57,7 +58,7 @@ Resources:
           Value: !Sub "${ProjectName}-vpce-logs"
 
   StsEndpoint:
-    Type: AWS::EC2::VPCEndpoint
+    Type: AWS::EC2::VPCEndpoint  #anything in private subnet, resolve temporary AWS credentials privately
     Properties:
       VpcId: !Ref VpcId
       VpcEndpointType: Interface
@@ -71,7 +72,7 @@ Resources:
           Value: !Sub "${ProjectName}-vpce-sts"
 
   SecretsManagerEndpoint:
-    Type: AWS::EC2::VPCEndpoint
+    Type: AWS::EC2::VPCEndpoint   #lets ECS fetch RDS-managed db, credential from Secretfs MAnager at start up, db-usenrma, password
     Properties:
       VpcId: !Ref VpcId
       VpcEndpointType: Interface
@@ -84,8 +85,9 @@ Resources:
         - Key: Name
           Value: !Sub "${ProjectName}-vpce-secretsmanager"
 
+# Gateway endpoints are just a route-table entry and are free
   S3GatewayEndpoint:
-    Type: AWS::EC2::VPCEndpoint
+    Type: AWS::EC2::VPCEndpoint   #ECR's own Imaga layers + apps' own photo uploads
     Properties:
       VpcId: !Ref VpcId
       VpcEndpointType: Gateway

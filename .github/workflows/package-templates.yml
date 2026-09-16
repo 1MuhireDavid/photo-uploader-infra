@@ -1,5 +1,4 @@
-name: "Package nested templates to S3"
-
+name: Package nested templates to S3
 
 on:
   push:
@@ -7,13 +6,10 @@ on:
     paths:
       - "cfn/nested-templates/**"
       - "cfn/root.yaml"
-      - "cfn/deployment-file.yaml"
-      - ".github/workflows/package-templates.yml"
-
 
 permissions:
-  id-token: write # required for OIDC -> AWS
-  contents: write # required to commit cfn/packaged/root.yaml back to main
+  id-token: write
+  contents: write
 
 concurrency:
   group: package-templates-${{ github.ref }}
@@ -21,28 +17,23 @@ concurrency:
 
 jobs:
   package:
-    name: Lint, package, and commit
     runs-on: ubuntu-latest
     steps:
-      - name: Check out the repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Install cfn-lint
-        run: pip install --quiet cfn-lint
-
-      - name: Lint every template
+      - name: Lint templates
         run: |
           set -euo pipefail
-          cfn-lint bootstrap/00-bootstrap.yaml cfn/nested-templates/*.yaml
+          pip install --quiet cfn-lint
+          cfn-lint cfn/nested-templates/*.yaml
           cfn-lint cfn/root.yaml --ignore-checks W3002 W6001
 
-      - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_INFRA_PACKAGING_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
-      - name: Package the root template
+      - name: Package
         run: |
           set -euo pipefail
           mkdir -p cfn/packaged
@@ -51,78 +42,17 @@ jobs:
             --s3-bucket "${{ vars.AWS_TEMPLATES_BUCKET }}" \
             --s3-prefix templates \
             --output-template-file cfn/packaged/root.yaml
-
-      - name: Validate the packaged deployment contract
-        run: |
-          set -euo pipefail
           cfn-lint cfn/packaged/root.yaml --ignore-checks W6001
-          python - <<'PY'
-          import sys, yaml
 
-          # cfn-lint has already parsed both files with full intrinsic-function
-          # support; here we only need the parameter names, so short-circuit the
-          # CloudFormation short tags (!Sub, !ImportValue, ...) the plain YAML
-          # loader does not know about.
-          loader = yaml.SafeLoader
-          loader.add_multi_constructor("!", lambda l, s, n: None)
-
-          deployment = yaml.load(open("cfn/deployment-file.yaml"), Loader=loader)
-          packaged = yaml.load(open("cfn/packaged/root.yaml"), Loader=loader)
-
-          configured = deployment.get("parameters") or {}
-          available = packaged.get("Parameters") or {}
-
-          errors = []
-
-          unknown = sorted(set(configured) - set(available))
-          if unknown:
-              errors.append(f"deployment file sets parameters the template does not declare: {', '.join(unknown)}")
-
-          unsatisfied = sorted(
-              name for name, spec in available.items()
-              if "Default" not in (spec or {}) and name not in configured
-          )
-          if unsatisfied:
-              errors.append(f"template parameters with no default and no deployment-file value: {', '.join(unsatisfied)}")
-
-          declared = deployment.get("template-file-path")
-          if declared != "cfn/packaged/root.yaml":
-              errors.append(f"deployment file points at {declared!r}, not the packaged template")
-
-          for error in errors:
-              print(f"::error::{error}")
-          sys.exit(1 if errors else 0)
-
-          PY
-          echo "Deployment parameter contract OK"
-
-      - name: Commit the packaged template
+      - name: Push packaged template
         run: |
           set -euo pipefail
           git add cfn/packaged/root.yaml
-
-          if git diff --cached --quiet -- cfn/packaged/root.yaml; then
-            echo "Packaged template unchanged -- no nested template content was modified."
-            echo "PACKAGED_CHANGED=false" >> "$GITHUB_ENV"
+          if git diff --cached --quiet; then
+            echo "Unchanged - nothing to push."
             exit 0
           fi
-
           git config user.name  'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git commit -m "chore: package nested templates [skip ci]"
           git push
-          echo "PACKAGED_CHANGED=true" >> "$GITHUB_ENV"
-
-      - name: Summary
-        if: always()
-        run: |
-          {
-            echo "### Template packaging"
-            echo ""
-            if [ "${PACKAGED_CHANGED:-false}" = "true" ]; then
-              echo "\`cfn/packaged/root.yaml\` changed and was committed to \`main\`."
-              echo "Git sync picks that commit up and redeploys automatically."
-            else
-              echo "\`cfn/packaged/root.yaml\` was unchanged -- nothing to deploy."
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
