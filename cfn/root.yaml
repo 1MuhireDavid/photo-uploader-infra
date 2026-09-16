@@ -177,6 +177,11 @@ Resources:
 
   AlbEcsStack:
     Type: AWS::CloudFormation::Stack
+    # The endpoints stack has no Outputs, so nothing here references it and
+    # CloudFormation would otherwise build it in parallel with this one. ECS
+    # tasks run in private subnets with no NAT, so they can only reach ECR,
+    # Secrets Manager and CloudWatch Logs once those endpoints exist.
+    DependsOn: BackingServicesStack
     Properties:
       TemplateURL: nested-templates/06-alb-ecs.yaml
       Parameters:
