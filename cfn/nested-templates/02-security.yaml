@@ -82,6 +82,21 @@ Resources:
         - Key: Name
           Value: !Sub "${ProjectName}-rds-sg"
 
+  # Attaching any standalone SecurityGroupEgress to this group replaces EC2's
+  # default allow-all outbound rule, so every destination the task needs has
+  # to be declared here. Without this one the task cannot reach the interface
+  # endpoints and fails to start with "unable to retrieve secret from asm".
+  # 0.0.0.0/0 is not an internet hole -- there is no NAT Gateway, so the only
+  # 443 destinations that route anywhere are the VPC endpoints themselves.
+  EcsTaskHttpsEgress:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref EcsTaskSecurityGroup
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      CidrIp: 0.0.0.0/0
+
   EcsTaskToRdsEgress:
     Type: AWS::EC2::SecurityGroupEgress  #rule Letting ECS tasks reach RDS on 5432
     Properties:
