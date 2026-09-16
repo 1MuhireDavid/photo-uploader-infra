@@ -18,6 +18,12 @@ Parameters:
   PrivateSubnet2CIDR:
     Type: String
     Default: 10.30.11.0/24
+  PrivateDbSubnet1CIDR:
+    Type: String
+    Default: 10.30.20.0/24
+  PrivateDbSubnet2CIDR:
+    Type: String
+    Default: 10.30.21.0/24
   CloudFrontPriceClass:
     Type: String
     Default: PriceClass_200
@@ -89,7 +95,7 @@ Resources:
     Type: AWS::CloudFormation::Stack
     Properties:
       TemplateURL: 
-        https://s3.us-east-1.amazonaws.com/photo-uploader-cfn-templates-047719661196-us-east-1/templates/b0912a7b98105c332776120b46273389.template
+        https://s3.us-east-1.amazonaws.com/photo-uploader-cfn-templates-047719661196-us-east-1/templates/4dec2054a67ef82c836b71392aaf0f87.template
       Parameters:
         ProjectName:
           Ref: ProjectName
@@ -103,6 +109,10 @@ Resources:
           Ref: PrivateSubnet1CIDR
         PrivateSubnet2CIDR:
           Ref: PrivateSubnet2CIDR
+        PrivateDbSubnet1CIDR:
+          Ref: PrivateDbSubnet1CIDR
+        PrivateDbSubnet2CIDR:
+          Ref: PrivateDbSubnet2CIDR
       Tags:
       - Key: Project
         Value:
@@ -111,7 +121,7 @@ Resources:
     Type: AWS::CloudFormation::Stack
     Properties:
       TemplateURL: 
-        https://s3.us-east-1.amazonaws.com/photo-uploader-cfn-templates-047719661196-us-east-1/templates/82462a8a552d67180dd0fb95fba67bd4.template
+        https://s3.us-east-1.amazonaws.com/photo-uploader-cfn-templates-047719661196-us-east-1/templates/aab55ed0e35d5551f77bc82dbe240d0c.template
       Parameters:
         ProjectName:
           Ref: ProjectName
@@ -181,14 +191,14 @@ Resources:
     Type: AWS::CloudFormation::Stack
     Properties:
       TemplateURL: 
-        https://s3.us-east-1.amazonaws.com/photo-uploader-cfn-templates-047719661196-us-east-1/templates/5857503c935698d6e9efb3365a33a24e.template
+        https://s3.us-east-1.amazonaws.com/photo-uploader-cfn-templates-047719661196-us-east-1/templates/f1a7f64b52dc52316ced14cea2ec7b6a.template
       Parameters:
         ProjectName:
           Ref: ProjectName
-        PrivateSubnetIds:
+        DbSubnetIds:
           Fn::GetAtt:
           - NetworkStack
-          - Outputs.PrivateSubnetIds
+          - Outputs.PrivateDbSubnetIds
         RdsSecurityGroupId:
           Fn::GetAtt:
           - SecurityStack
