@@ -35,7 +35,6 @@ Parameters:
       - PriceClass_200
       - PriceClass_All
 
-
   DbInstanceClass:
     Type: String
     Default: db.t3.micro
