@@ -36,11 +36,6 @@ Resources:
           FromPort: !Ref TestListenerPort
           ToPort: !Ref TestListenerPort
           CidrIp: !Ref TestListenerAllowedCidr
-      SecurityGroupEgress:
-        - IpProtocol: tcp
-          FromPort: !Ref ContainerPort
-          ToPort: !Ref ContainerPort
-          CidrIp: !Ref VpcCidr
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-alb-sg"
@@ -55,11 +50,6 @@ Resources:
           FromPort: !Ref ContainerPort
           ToPort: !Ref ContainerPort
           SourceSecurityGroupId: !Ref AlbSecurityGroup
-      SecurityGroupEgress:
-        - IpProtocol: tcp
-          FromPort: 443
-          ToPort: 443
-          CidrIp: 0.0.0.0/0
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-ecs-task-sg"
@@ -67,13 +57,13 @@ Resources:
   VpcEndpointSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Interface VPC endpoints - accepts HTTPS from ECS tasks only
+      GroupDescription: Interface VPC endpoints - accepts HTTPS from VPC only
       VpcId: !Ref VpcId
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 443
           ToPort: 443
-          SourceSecurityGroupId: !Ref EcsTaskSecurityGroup
+          SourceSecurityGroupId: !Ref VpcCidr  #extend to vpc cidr
       Tags:
         - Key: Name
           Value: !Sub "${ProjectName}-vpce-sg"
@@ -81,7 +71,7 @@ Resources:
   RdsSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: RDS PostgreSQL - accepts traffic from ECS tasks only
+      GroupDescription: RDS PostgreSQL - accepts traffic from ECS tasks only # guards the db
       VpcId: !Ref VpcId
       SecurityGroupIngress:
         - IpProtocol: tcp
@@ -93,7 +83,7 @@ Resources:
           Value: !Sub "${ProjectName}-rds-sg"
 
   EcsTaskToRdsEgress:
-    Type: AWS::EC2::SecurityGroupEgress
+    Type: AWS::EC2::SecurityGroupEgress  #rule Letting ECS tasks reach RDS on 5432
     Properties:
       GroupId: !Ref EcsTaskSecurityGroup
       IpProtocol: tcp

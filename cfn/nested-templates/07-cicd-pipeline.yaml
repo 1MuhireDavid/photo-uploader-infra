@@ -32,7 +32,7 @@ Parameters:
 Resources:
 
   ArtifactBucket:
-    Type: AWS::S3::Bucket
+    Type: AWS::S3::Bucket  # used by codepipeline & workflow uploads deploy-tempalet zips
     Properties:
       BucketName: !Sub "${ProjectName}-pipeline-${AWS::AccountId}-${AWS::Region}"
       VersioningConfiguration:
@@ -52,7 +52,7 @@ Resources:
             Status: Enabled
             ExpirationInDays: 30
 
-  CodeDeployServiceRole:
+  CodeDeployServiceRole:  #assume to perform blue/green shift 
     Type: AWS::IAM::Role
     Properties:
       RoleName: !Sub "${ProjectName}-codedeploy-role"
@@ -66,8 +66,8 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/AWSCodeDeployRoleForECS
 
-  CodeDeployApplication:
-    Type: AWS::CodeDeploy::Application
+  CodeDeployApplication: #logical code deployment application
+    Type: AWS::CodeDeploy::Application  # parent of the deployment group below
     Properties:
       ApplicationName: !Sub "${ProjectName}-app"
       ComputePlatform: ECS
@@ -84,7 +84,7 @@ Resources:
         DeploymentOption: WITH_TRAFFIC_CONTROL
       BlueGreenDeploymentConfiguration:
         DeploymentReadyOption:
-          ActionOnTimeout: CONTINUE_DEPLOYMENT
+          ActionOnTimeout: CONTINUE_DEPLOYMENT  #traffic shift once green is healthy
         TerminateBlueInstancesOnDeploymentSuccess:
           Action: TERMINATE
           TerminationWaitTimeInMinutes: 10
@@ -104,7 +104,7 @@ Resources:
               - Name: !Ref GreenTargetGroupName
 
   CodePipelineServiceRole:
-    Type: AWS::IAM::Role
+    Type: AWS::IAM::Role  #assume to run each stage
     Properties:
       RoleName: !Sub "${ProjectName}-codepipeline-role"
       AssumeRolePolicyDocument:
@@ -129,7 +129,7 @@ Resources:
                 Resource:
                   - !GetAtt ArtifactBucket.Arn
                   - !Sub "${ArtifactBucket.Arn}/*"
-              - Sid: EcrSourceAction
+              - Sid: EcrSourceAction  #read scoped to ecr repo
                 Effect: Allow
                 Action:
                   - "ecr:DescribeImages"
@@ -157,7 +157,7 @@ Resources:
                   - "ecs:DescribeTaskDefinition"
                   - "ecs:DeregisterTaskDefinition"
                 Resource: "*"
-              - Sid: PassRolesToEcs
+              - Sid: PassRolesToEcs  #hand roles to ecs not anythin else
                 Effect: Allow
                 Action: "iam:PassRole"
                 Resource: "*"
@@ -173,10 +173,10 @@ Resources:
       ArtifactStore:
         Type: S3
         Location: !Ref ArtifactBucket
-      Stages:
+      Stages:  
         - Name: Source
           Actions:
-            - Name: ImageSource
+            - Name: ImageSource  #parallel action
               ActionTypeId:
                 Category: Source
                 Owner: AWS
@@ -186,7 +186,7 @@ Resources:
                 RepositoryName: !Ref EcrRepositoryName
                 ImageTag: !Ref DeployedImageTag
               OutputArtifacts:
-                - Name: ImageDetail
+                - Name: ImageDetail   #produced artifact
               RunOrder: 1
             - Name: DeployTemplatesSource
               ActionTypeId:
@@ -195,9 +195,9 @@ Resources:
                 Provider: S3
                 Version: "1"
               Configuration:
-                S3Bucket: !Ref ArtifactBucket
+                S3Bucket: !Ref ArtifactBucket #read deploy-tempales.zip from artifact bucket
                 S3ObjectKey: !Ref DeployTemplatesS3Key
-                PollForSourceChanges: "false"
+                PollForSourceChanges: "false"  #never self trigger deployment
               OutputArtifacts:
                 - Name: DeployTemplates
               RunOrder: 1
@@ -216,7 +216,7 @@ Resources:
                 ApplicationName: !Ref CodeDeployApplication
                 DeploymentGroupName: !Ref CodeDeployDeploymentGroup
                 TaskDefinitionTemplateArtifact: DeployTemplates
-                TaskDefinitionTemplatePath: !Sub "${DeployTemplatesPath}/taskdef.json"
+                TaskDefinitionTemplatePath: !Sub "${DeployTemplatesPath}/taskdef.json" #read from zip and substitutes the real image URI for the Image placeholder
                 AppSpecTemplateArtifact: DeployTemplates
                 AppSpecTemplatePath: !Sub "${DeployTemplatesPath}/appspec.yaml"
                 Image1ArtifactName: ImageDetail
@@ -224,7 +224,7 @@ Resources:
               RunOrder: 1
 
   EventBridgeInvokePipelineRole:
-    Type: AWS::IAM::Role
+    Type: AWS::IAM::Role  #assume to call code pipeline: startpipelinee
     Properties:
       RoleName: !Sub "${ProjectName}-eventbridge-pipeline-role"
       AssumeRolePolicyDocument:
@@ -244,7 +244,7 @@ Resources:
                 Resource: !Sub "arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${Pipeline}"
 
   EcrPushRule:
-    Type: AWS::Events::Rule
+    Type: AWS::Events::Rule  #trigger for the whole app deployment flow
     Properties:
       Name: !Sub "${ProjectName}-ecr-push-rule"
       Description: !Sub "Starts ${ProjectName}-pipeline whenever a new '${DeployedImageTag}' image is pushed to ECR"
@@ -257,7 +257,7 @@ Resources:
           action-type:
             - PUSH
           result:
-            - SUCCESS
+            - SUCCESS  #if not then ignored
           repository-name:
             - !Ref EcrRepositoryName
           image-tag:

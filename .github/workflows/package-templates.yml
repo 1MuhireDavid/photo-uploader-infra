@@ -6,7 +6,6 @@ on:
     paths:
       - "cfn/nested-templates/**"
       - "cfn/root.yaml"
-  workflow_dispatch:
 
 permissions:
   id-token: write
