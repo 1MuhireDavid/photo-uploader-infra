@@ -121,7 +121,7 @@ Resources:
     Type: AWS::CloudFormation::Stack
     Properties:
       TemplateURL: 
-        https://s3.us-east-1.amazonaws.com/photo-uploader-cfn-templates-047719661196-us-east-1/templates/aab55ed0e35d5551f77bc82dbe240d0c.template
+        https://s3.us-east-1.amazonaws.com/photo-uploader-cfn-templates-047719661196-us-east-1/templates/a57f83c6af0d233b22060d188689d072.template
       Parameters:
         ProjectName:
           Ref: ProjectName
