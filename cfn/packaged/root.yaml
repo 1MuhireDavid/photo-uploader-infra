@@ -221,6 +221,7 @@ Resources:
           Ref: ProjectName
   AlbEcsStack:
     Type: AWS::CloudFormation::Stack
+    DependsOn: BackingServicesStack
     Properties:
       TemplateURL: 
         https://s3.us-east-1.amazonaws.com/photo-uploader-cfn-templates-047719661196-us-east-1/templates/47066fd1e3dac932af627b5f61a7af14.template
